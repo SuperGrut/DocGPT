@@ -2,8 +2,8 @@ import React, { useState, useRef } from "react";
 import { useDispatch } from "react-redux";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-
 import toast, { Toaster } from "react-hot-toast";
+import * as z from "zod";
 
 import AuthLayout from "../components/ui/AuthLayout";
 import AuthHeader from "../components/ui/AuthHeader";
@@ -38,6 +38,17 @@ export default function SignUp() {
       email: email.current.value,
       password: password.current.value,
     };
+
+    const Data = z.object({
+      name: z.string(),
+      username: z.string(),
+      email: z.email(),
+      password: z.string()
+    });
+
+    const result = Data.parse(data);
+    console.log('it is comming from zod',result);
+
     if (!validate(data)) {
       toast.dismiss();
       return;
