@@ -47,7 +47,7 @@ export default function SignUp() {
     });
 
     const result = Data.parse(data);
-    console.log('it is comming from zod',result);
+    console.log('it is coming from zod', result);
 
     if (!validate(data)) {
       toast.dismiss();

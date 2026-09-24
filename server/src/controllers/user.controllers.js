@@ -39,7 +39,7 @@ export const signupUser = async (req, res) => {
       throw new Error("User already exist");
     }
 
-    //Making User's director to store their uploaded PDF.
+    //Making User's directory to store their uploaded PDF.
     mkdir(`data/${username}`, { recursive: true }, async (err) => {
       if (err) throw new Error("Failed to create User namespace");
       else {
