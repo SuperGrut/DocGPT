@@ -1,4 +1,4 @@
-import { HelloWorld } from "@docgpt/react/src/helloworld"
+import { HelloWorld } from "@docgpt/react-shared-libraries/src/helloworld"
 
 export default function Home() {
   return (
