@@ -28,7 +28,7 @@ export class AuthController {
     );
 
     //set cookie
-    response.cookie("auth", obj.jwt);
+    response.cookie("auth", 'hello');
 
     //respond
   }

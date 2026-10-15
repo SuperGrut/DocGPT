@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "dev:backend": "pnpm --filter ./apps/backend run dev",
     "dev:frontend": "pnpm --filter ./apps/frontend run dev",
     "prisma-generate": "pnpm dlx prisma@6.5.0 generate --schema ./libraries/nestjs-libraries/src/database/prisma/schema.prisma",
     "prisma-migrate-dev": "pnpm dlx prisma@6.5.0 migrate dev --schema ./libraries/nestjs-libraries/src/database/prisma/schema.prisma",
@@ -21,6 +22,8 @@
     "@nestjs/platform-express": "^12.0.1",
     "@prisma/client": "6.5.0",
     "class-validator": "^0.15.1",
+    "dotenv": "16.5.0",
+    "dotenv-cli": "8.0.0",
     "nestjs-real-ip": "^3.0.1",
     "next": "^16.3.6",
     "prisma": "6.5.0",

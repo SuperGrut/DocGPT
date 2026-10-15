@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller.js';
-import { AppService } from './app.service.js';
+import {DatabaseModule} from "@docgpt/nestjs-libraries/database/prisma/database.module"
 
 @Module({
-  imports: [],
-  controllers: [AppController],
-  providers: [AppService],
+  imports: [DatabaseModule],
+  controllers: [],
+  providers: [],
+  exports: [DatabaseModule]
 })
 export class AppModule {}
