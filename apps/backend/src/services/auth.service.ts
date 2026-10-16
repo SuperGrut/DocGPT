@@ -35,7 +35,7 @@ export class AuthService {
           ip,
           userAgent,
         );
-    
+        console.log('create', create);
         const obj = {}
 
         //send email for activation

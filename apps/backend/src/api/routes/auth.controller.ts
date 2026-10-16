@@ -4,6 +4,7 @@ import { Response, Request } from "express";
 import { RealIP } from "nestjs-real-ip";
 import { UserAgent } from "@docgpt/nestjs-libraries/user/user.agent.decorator";
 import { CreateOrgUserDto } from "@docgpt/nestjs-libraries/dtos/auth/create.org.user.dtos";
+
 @Controller("auth")
 export class AuthController {
   constructor(private _authService: AuthService) {}
