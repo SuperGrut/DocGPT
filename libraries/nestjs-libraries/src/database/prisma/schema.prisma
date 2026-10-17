@@ -46,7 +46,7 @@ model User {
   //payoutProblems        PayoutProblems[]
   //agencies              SocialMediaAgency?
   // picture               Media?               @relation(fields: [pictureId], references: [id])
-  //organizations         UserOrganization[]
+  organizations         UserOrganization[]
   //sendSuccessEmails     Boolean              @default(true)
   //sendFailureEmails     Boolean              @default(true)
   //sendStreakEmails      Boolean              @default(true)
@@ -94,7 +94,7 @@ model Organization {
   //tags                Tags[]
   //thirdParty          ThirdParty[]
   //usedCodes           UsedCodes[]
-  //users               UserOrganization[]
+  users                 UserOrganization[]
   //webhooks            Webhooks[]
   //oauthApp            OAuthApp[]
   //oauthAuthorizations OAuthAuthorization[]
@@ -105,6 +105,28 @@ model Organization {
   //@@index([deletedAt])
 }
 
+model UserOrganization {
+  id             String       @id @default(uuid())
+  userId         String
+  organizationId String
+  disabled       Boolean      @default(false)
+  role           Role         @default(USER)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  user           User         @relation(fields: [userId], references: [id])
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@index([disabled])
+}
+
 enum Provider {
   LOCAL
+}
+
+enum Role {
+  SUPERADMIN
+  ADMIN
+  USER
 }

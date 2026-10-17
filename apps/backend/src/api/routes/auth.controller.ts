@@ -17,21 +17,38 @@ export class AuthController {
     @RealIP() ip: string,
     @UserAgent() userAgent: string,
   ) {
-    const getOrgFromCookie = this._authService.getOrgFromCookie(
-      req?.cookies?.org,
-    );
+    try {
+      const getOrgFromCookie = this._authService.getOrgFromCookie(
+        req?.cookies?.org,
+      );
 
-    const obj = await this._authService.routeAuth(
-      body,
-      ip,
-      userAgent,
-      getOrgFromCookie,
-    );
+      const {jwt, addedToOrg} = await this._authService.routeAuth(
+        body,
+        ip,
+        userAgent,
+        getOrgFromCookie,
+      );
 
-    //set cookie
-    response.cookie("auth", 'hello');
+      response.cookie("auth", jwt, {
+        domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
+        ...(!process.env.NOT_SECURED
+          ? {
+              secure: true,
+              httpOnly: true,
+              sameSite: "none",
+            }
+          : {}),
+        expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
+      });
 
-    //respond
+      Sentry.metrics.count("new_user", 1);
+      response.header("onboarding", "true");
+      response.status(200).json({
+        register: true,
+      });
+    } catch (error) {
+      response.status(400).send(e.message);
+    }
   }
 
   @Post("/login")

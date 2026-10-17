@@ -11,6 +11,16 @@ export class OrganizationService {
     ip: string,
     userAgent: string,
   ) {
+    console.log('entered createOrgAndUser');
     return this._organizationRepository.createOrgAndUser(body, ip, userAgent);
+  }
+
+  async addUserToOrg(
+    userId: string,
+    id: string,
+    orgId: string,
+    role: 'ADMIN' | 'USER'
+  ){
+    return this._organizationRepository.addUserToOrg(userId, id, orgId, role);
   }
 }

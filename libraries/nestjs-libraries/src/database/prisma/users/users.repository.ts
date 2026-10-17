@@ -1,12 +1,30 @@
 import { Injectable } from "@nestjs/common";
+import { Provider } from "@prisma/client";
+import { PrismaRepository } from "@docgpt/nestjs-libraries/database/prisma/prisma.service";
 
 @Injectable()
 export class UsersRepository {
-  getUserByEmail(email: string) {
-    return {
-      email: "akashsah@gmail.com",
-      company: "SuperGrut",
-      org: "Gord Motors",
-    };
+  constructor(
+    private _user: PrismaRepository<'user'>
+  ) {}
+  async getUserByEmail(email: string) {
+    return await this._user.model.user.findFirst({
+      where: {
+        email: {
+          equals: email,
+          mode: 'insensitive',
+        },
+        providerName: Provider.LOCAL,
+        deletedAt: null,
+      },
+      // include: {
+      //   picture: {
+      //     select: {
+      //       id: true,
+      //       path: true,
+      //     },
+      //   },
+      // },
+    });
   }
 }

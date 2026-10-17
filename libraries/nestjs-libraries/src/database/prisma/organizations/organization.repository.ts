@@ -7,7 +7,8 @@ import { makeSecureId } from "@docgpt/nestjs-libraries/services/make.secure.id";
 export class OrganizationRepository {
   constructor(
     private _organization: PrismaRepository<"organization">,
-    private _users: PrismaRepository<'user'>
+    private _userOrg: PrismaRepository<'userOrganization'>,
+    private _user: PrismaRepository<'user'>
   ) {}
 
   async createOrgAndUser(
@@ -23,16 +24,16 @@ export class OrganizationRepository {
         isTrailing: true,
         users: {
           create: {
-            role: "SuperAdmin",    // update it later
+            role: "SUPERADMIN", // update it later
             user: {
               create: {
-                activated: body.provider !== "LOCAL",      // update it later
+                activated: body.provider !== "LOCAL", // update it later
                 email: body.email,
                 password: body.password
                   ? AuthService.hashPassword(body.password)
                   : "",
                 providerName: body.provider,
-                providerId: "",                 // update it later
+                providerId: "", // update it later
 
                 timezone: 0,
                 ip,
@@ -51,5 +52,59 @@ export class OrganizationRepository {
         },
       },
     });
+  }
+
+  async addUserToOrg(
+    userId: string,
+    id: string,
+    orgId: string,
+    role: "USER" | "ADMIN",
+  ) {
+    const checkIfInviteExists = await this._user.model.user.findFirst({
+      where: {
+        inviteId: id,
+      },
+    });
+
+    if (checkIfInviteExists) {
+      return false;
+    }
+
+    const checkForSubscription =
+      await this._organization.model.organization.findFirst({
+        where: {
+          id: orgId,
+        },
+        select: {
+          subscription: true,
+        },
+      });
+
+    // if (
+    //   process.env.STRIPE_PUBLISHABLE_KEY &&
+    //   checkForSubscription?.subscription?.subscriptionTier ===
+    //     SubscriptionTier.STANDARD
+    // ) {
+    //   return false;
+    // }
+
+    const create = await this._userOrg.model.userOrganization.create({
+      data: {
+        role,
+        userId,
+        organizationId: orgId,
+      },
+    });
+
+    await this._user.model.user.update({
+      where: {
+        id: userId,
+      },
+      data: {
+        inviteId: id,
+      },
+    });
+
+    return create;
   }
 }

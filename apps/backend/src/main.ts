@@ -1,14 +1,19 @@
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module.js";
-import { Logger } from "@nestjs/common";
+import { Logger, ValidationPipe } from "@nestjs/common";
 
 const PORT = process.env.PORT || 3000;
 
 async function start() {
-  const app = NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule);
+  app.useGlobalPipes(
+    new ValidationPipe({
+      transform: true,
+    })
+  );
 
   try {
-    (await app).listen(PORT);
+    (app).listen(PORT);
     console.log('App started')
     Logger.log(`Backend started on: http://localhost:${PORT}`);
   } catch (e) {

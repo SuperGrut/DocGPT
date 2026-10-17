@@ -42,7 +42,11 @@ export class AuthService {
     return encrypt_legacy_using_IV(value);
   }
 
-  static hashPassword(password: string){
+  static hashPassword(password: string) {
     return hashSync(password, 10);
+  }
+
+  static signJWT(value: object) {
+    return sign(value, process.env.JWT_SECRET!);
   }
 }

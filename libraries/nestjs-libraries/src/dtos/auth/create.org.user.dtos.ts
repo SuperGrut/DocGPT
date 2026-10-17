@@ -6,7 +6,7 @@ import {
   MinLength,
   ValidateIf,
 } from 'class-validator';
-// import { Provider } from '@prisma/client';
+import { Provider } from '@prisma/client';
 
 export class CreateOrgUserDto {
   @IsString()
@@ -18,7 +18,7 @@ export class CreateOrgUserDto {
 
   @IsString()
   @IsDefined()
-  provider: string;   
+  provider: Provider;   
 
   @IsString()
   @IsDefined()
