@@ -22,7 +22,7 @@ export class AuthController {
         req?.cookies?.org,
       );
 
-      const {jwt, addedToOrg} = await this._authService.routeAuth(
+      const { jwt, addedToOrg } = await this._authService.routeAuth(
         body,
         ip,
         userAgent,
@@ -52,7 +52,58 @@ export class AuthController {
   }
 
   @Post("/login")
-  async login() {}
+  async login(
+    @Req() req: Request,
+    @Res({ passthrough: false }) response: Response,
+    @Body() body: CreateOrgUserDto,
+    @RealIP() ip: string,
+    @UserAgent() userAgent: string,
+  ) {
+    try {
+      const getOrgFromCookie = this._authService.getOrgFromCookie(
+        req?.cookies?.org,
+      );
+
+      const { jwt, addedOrg } = await this._authService.routeAuth(
+        body,
+        ip,
+        userAgent,
+        getOrgFromCookie,
+      );
+
+      response.cookie("auth", jwt, {
+        domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
+        ...(!process.env.NOT_SECURED
+          ? {
+              secure: true,
+              httpOnly: true,
+              sameSite: "none",
+            }
+          : {}),
+        expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
+      });
+
+      if (typeof addedOrg !== 'boolean' && addedOrg?.organizationId) {
+        response.cookie('showorg', addedOrg.organizationId, {
+          domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
+          ...(!process.env.NOT_SECURED
+            ? {
+                secure: true,
+                httpOnly: true,
+                sameSite: 'none',
+              }
+            : {}),
+          expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
+        });
+
+        response.header('reload', 'true');
+        response.status(200).json({
+        login: true,
+      });
+    } catch (e) {
+
+    }
+  }
 
   async forgot() {}
 }

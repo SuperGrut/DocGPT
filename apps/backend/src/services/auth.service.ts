@@ -55,6 +55,17 @@ export class AuthService {
         // );
         return obj;
       }
+
+      if (!user || !AuthChecker.comparePassword(body.password, user.password)) {
+        throw new Error('Invalid user name or password');
+      }
+
+      if (!user.activated) {
+        throw new Error('User is not activated');
+      }
+
+      return { addedOrg: false, jwt: await this.jwt(user) };
+    }
     }
   }
 
