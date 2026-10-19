@@ -1,4 +1,4 @@
-import { AuthService } from "@docgpt/backend/services/auth.service";
+import { AuthService } from "@docgpt/backend/services/auth/auth.service";
 import { Body, Controller, Post, Req, Res } from "@nestjs/common";
 import { Response, Request } from "express";
 import { RealIP } from "nestjs-real-ip";
@@ -101,7 +101,7 @@ export class AuthController {
         login: true,
       });
     } catch (e) {
-
+      response.status(400).send(e.message);
     }
   }
 
