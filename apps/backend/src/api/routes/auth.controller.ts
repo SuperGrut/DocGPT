@@ -4,10 +4,14 @@ import { Response, Request } from "express";
 import { RealIP } from "nestjs-real-ip";
 import { UserAgent } from "@docgpt/nestjs-libraries/user/user.agent.decorator";
 import { CreateOrgUserDto } from "@docgpt/nestjs-libraries/dtos/auth/create.org.user.dtos";
+import { UsersService } from "@docgpt/nestjs-libraries/database/prisma/users/users.service";
 
 @Controller("auth")
 export class AuthController {
-  constructor(private _authService: AuthService) {}
+  constructor(
+    private _authService: AuthService,
+    private _usersService: UsersService,
+  ) {}
 
   @Post("/register")
   async register(
@@ -83,27 +87,45 @@ export class AuthController {
         expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
       });
 
-      if (typeof addedOrg !== 'boolean' && addedOrg?.organizationId) {
-        response.cookie('showorg', addedOrg.organizationId, {
+      if (typeof addedOrg !== "boolean" && addedOrg?.organizationId) {
+        response.cookie("showorg", addedOrg.organizationId, {
           domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
           ...(!process.env.NOT_SECURED
             ? {
                 secure: true,
                 httpOnly: true,
-                sameSite: 'none',
+                sameSite: "none",
               }
             : {}),
           expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
         });
 
-        response.header('reload', 'true');
+        response.header("reload", "true");
         response.status(200).json({
-        login: true,
-      });
+          login: true,
+        });
+      }
     } catch (e) {
       response.status(400).send(e.message);
     }
   }
 
-  async forgot() {}
+  @Post('/forgot')
+  async forgot(email: string) {
+    const user = await this._usersService.getUserByEmail(email);
+    if (!user || user.providerName !== Provider.LOCAL) {
+      return false;
+    }
+
+    const resetValues = AuthChecker.signJWT({
+      id: user.id,
+      expires: dayjs().add(20, "minutes").format("YYYY-MM-DD HH:mm:ss"),
+    });
+
+    await this._emailService.sendEmailSync(
+      user.email,
+      "Reset your password",
+      `You have requested to reset your password. <br />Click <a href="${process.env.FRONTEND_URL}/auth/forgot/${resetValues}">here</a> to reset your password<br />The link will expire in 20 minutes`,
+    );
+  }
 }

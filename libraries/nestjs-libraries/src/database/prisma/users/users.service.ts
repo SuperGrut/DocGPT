@@ -10,6 +10,5 @@ export class UsersService {
   }
 
   getUserById(id: string) {}
-
   
 }
