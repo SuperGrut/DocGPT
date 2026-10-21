@@ -10,5 +10,8 @@ export class UsersService {
   }
 
   getUserById(id: string) {}
-  
+
+  updatePassword(id: string, password: string) {
+    return this._usersRepository.updatePassword(id, password);
+  }
 }

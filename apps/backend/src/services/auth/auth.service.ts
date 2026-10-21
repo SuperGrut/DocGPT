@@ -132,4 +132,16 @@ export class AuthService {
 
     return create.users[0].user;
   }
+
+  forgotReturn(body: ForgotReturnPasswordDto) {
+    const user = AuthChecker.verifyJWT(body.token) as {
+      id: string;
+      expires: string;
+    };
+    if (dayjs(user.expires).isBefore(dayjs())) {
+      return false;
+    }
+
+    return this._usersService.updatePassword(user.id, body.password);
+  }
 }

@@ -4,15 +4,14 @@ import { PrismaRepository } from "@docgpt/nestjs-libraries/database/prisma/prism
 
 @Injectable()
 export class UsersRepository {
-  constructor(
-    private _user: PrismaRepository<'user'>
-  ) {}
+  constructor(private _user: PrismaRepository<"user">) {}
+
   async getUserByEmail(email: string) {
     return await this._user.model.user.findFirst({
       where: {
         email: {
           equals: email,
-          mode: 'insensitive',
+          mode: "insensitive",
         },
         providerName: Provider.LOCAL,
         deletedAt: null,
@@ -27,4 +26,5 @@ export class UsersRepository {
       // },
     });
   }
+
 }
