@@ -110,7 +110,7 @@ export class AuthController {
     }
   }
 
-  @Post('/forgot')
+  @Post("/forgot")
   async forgot(email: string) {
     const user = await this._usersService.getUserByEmail(email);
     if (!user || user.providerName !== Provider.LOCAL) {
@@ -127,5 +127,48 @@ export class AuthController {
       "Reset your password",
       `You have requested to reset your password. <br />Click <a href="${process.env.FRONTEND_URL}/auth/forgot/${resetValues}">here</a> to reset your password<br />The link will expire in 20 minutes`,
     );
+  }
+
+  @Post("/forgot-return")
+  async forgotReturn(@Body() body: ForgotReturnPasswordDto) {
+    const reset = await this._authService.forgotReturn(body);
+    return {
+      reset: !!reset,
+    };
+  }
+
+  @Post("/activate")
+  async activate(
+    @Body("code") code: string,
+    @Body("datafast_visitor_id") datafast_visitor_id: string,
+    @Res({ passthrough: false }) response: Response,
+  ) {
+    const activate = await this._authService.activate(
+      code,
+      datafast_visitor_id,
+    );
+    if (!activate) {
+      return response.status(200).json({ can: false });
+    }
+
+    response.cookie("auth", activate, {
+      domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
+      ...(!process.env.NOT_SECURED
+        ? {
+            secure: true,
+            httpOnly: true,
+            sameSite: "none",
+          }
+        : {}),
+      expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
+    });
+
+    if (process.env.NOT_SECURED) {
+      response.header("auth", activate);
+    }
+
+    response.header("onboarding", "true");
+
+    return response.status(200).json({ can: true });
   }
 }

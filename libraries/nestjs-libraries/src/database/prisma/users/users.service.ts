@@ -14,4 +14,8 @@ export class UsersService {
   updatePassword(id: string, password: string) {
     return this._usersRepository.updatePassword(id, password);
   }
+
+  activateUser(id: string) {
+    return this._usersRepository.activateUser(id);
+  }
 }

@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { Provider } from "@prisma/client";
 import { PrismaRepository } from "@docgpt/nestjs-libraries/database/prisma/prisma.service";
+import { AuthService } from "@docgpt/helpers/auth/auth.service";
 
 @Injectable()
 export class UsersRepository {
@@ -27,4 +28,26 @@ export class UsersRepository {
     });
   }
 
+  updatePassword(id: string, password: string) {
+    return this._user.model.user.update({
+      where: {
+        id,
+        providerName: Provider.LOCAL,
+      },
+      data: {
+        password: AuthService.hashPassword(password),
+      },
+    });
+  }
+
+  activateUser(id: string) {
+    return this._user.model.user.update({
+      where: {
+        id,
+      },
+      data: {
+        activated: true,
+      },
+    });
+  }
 }
