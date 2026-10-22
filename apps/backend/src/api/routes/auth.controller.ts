@@ -171,4 +171,19 @@ export class AuthController {
 
     return response.status(200).json({ can: true });
   }
+
+  @Post("/resend-activation")
+  async resendActivation(@Body() body: ResendActivationDto) {
+    try {
+      await this._authService.resendActivationEmail(body.email);
+      return {
+        success: true,
+      };
+    } catch (e: any) {
+      return {
+        success: false,
+        message: e.message,
+      };
+    }
+  }
 }

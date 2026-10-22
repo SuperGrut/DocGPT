@@ -144,4 +144,47 @@ export class AuthService {
 
     return this._usersService.updatePassword(user.id, body.password);
   }
+
+  async activate(code: string, tracking: string) {
+    const user = AuthChecker.verifyJWT(code) as {
+      id: string;
+      activated: boolean;
+      email: string;
+    };
+    if (user.id && !user.activated) {
+      const getUserAgain = await this._usersService.getUserByEmail(user.email);
+      if (getUserAgain.activated) {
+        return false;
+      }
+      await this._usersService.activateUser(user.id);
+      user.activated = true;
+      this._track("register", user.email, tracking).catch((err) => {});
+      await NewsletterService.register(user.email);
+      return this.jwt(user as any);
+    }
+
+    return false;
+  }
+
+  async resendActivationEmail(email: string) {
+    const user = await this._usersService.getUserByEmail(email);
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    if (user.activated) {
+      throw new Error("Account is already activated");
+    }
+
+    const jwt = await this.jwt(user);
+
+    await this._emailService.sendEmailSync(
+      user.email,
+      "Activate your account",
+      `Click <a href="${process.env.FRONTEND_URL}/auth/activate/${jwt}">here</a> to activate your account`,
+    );
+
+    return true;
+  }
 }
