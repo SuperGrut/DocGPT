@@ -4,6 +4,7 @@ import { CreateOrgUserDto } from "@docgpt/nestjs-libraries/dtos/auth/create.org.
 import { UsersService } from "@docgpt/nestjs-libraries/database/prisma/users/users.service";
 import { AuthService as AuthChecker } from "@docgpt/helpers/auth/auth.service";
 import { AuthProvidersManager } from "@docgpt/backend/services/auth/providers/providers.manager";
+import { Provider } from "@prisma/client";
 @Injectable()
 export class AuthService {
   constructor(
@@ -186,5 +187,44 @@ export class AuthService {
     );
 
     return true;
+  }
+
+  oauthLink(provider: string, query?: any) {
+    const providerInstance = this._providerManager.getProvider(provider);
+    return providerInstance.generateLink(query);
+  }
+
+  async checkExists(
+    provider: string,
+    code: string,
+    redirectUri?: string,
+    state?: string,
+    stateCookie?: string,
+  ) {
+    // the mobile app passes redirect_uri and keeps no cookies, the web flow
+    // never passes it, so the state nonce is only enforced for the web flow
+    if (
+      !process.env.NOT_SECURED &&
+      !redirectUri &&
+      (!state || state !== stateCookie)
+    ) {
+      throw new Error("Invalid state");
+    }
+
+    const providerInstance = this._providerManager.getProvider(provider);
+    const token = await providerInstance.getToken(code, redirectUri);
+    const user = await providerInstance.getUser(token);
+    if (!user) {
+      throw new Error("Invalid user");
+    }
+    const checkExists = await this._usersService.getUserByProvider(
+      user.id,
+      provider as Provider,
+    );
+    if (checkExists) {
+      return { jwt: await this.jwt(checkExists) };
+    }
+
+    return { token };
   }
 }

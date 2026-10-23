@@ -1,10 +1,11 @@
 import { AuthService } from "@docgpt/backend/services/auth/auth.service";
-import { Body, Controller, Post, Req, Res } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Query, Req, Res } from "@nestjs/common";
 import { Response, Request } from "express";
 import { RealIP } from "nestjs-real-ip";
 import { UserAgent } from "@docgpt/nestjs-libraries/user/user.agent.decorator";
 import { CreateOrgUserDto } from "@docgpt/nestjs-libraries/dtos/auth/create.org.user.dtos";
 import { UsersService } from "@docgpt/nestjs-libraries/database/prisma/users/users.service";
+import { makeSecureId } from "@docgpt/nestjs-libraries/services/make.secure.id";
 
 @Controller("auth")
 export class AuthController {
@@ -185,5 +186,27 @@ export class AuthController {
         message: e.message,
       };
     }
+  }
+
+  @Get("/oauth/:provider")
+  async oauthLink(
+    @Param("provider") provider: string,
+    @Query() query: any,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    const state = `login-${makeSecureId(16)}`;
+    response.cookie("oauth_state", state, {
+      domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
+      ...(!process.env.NOT_SECURED
+        ? {
+            secure: true,
+            httpOnly: true,
+            sameSite: "none",
+          }
+        : {}),
+      expires: new Date(Date.now() + 1000 * 60 * 10),
+    });
+
+    return this._authService.oauthLink(provider, { ...query, state });
   }
 }

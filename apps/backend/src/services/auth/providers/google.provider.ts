@@ -1,11 +1,63 @@
+import { google } from "googleapis";
 import {
   AuthProvider,
   AuthProviderAbstract,
 } from "@docgpt/backend/services/auth/provider.interface";
+import { HttpException } from "@nestjs/common";
+
+const defaultRedirect = () =>
+  `${process.env.FRONTEND_URL}/integrations/social/youtube`;
+
+const makeClient = (redirectUri: string) =>
+  new google.auth.OAuth2({
+    clientId: process.env.YOUTUBE_CLIENT_ID,
+    clientSecret: process.env.YOUTUBE_CLIENT_SECRET,
+    redirectUri,
+  });
 
 @AuthProvider({ provider: "google" })
 class GoogleAuthProvider extends AuthProviderAbstract {
-  generateLink(): string {}
-  getToken(): string {}
-  getUser(): { email: string; id: string } {}
+  generateLink(query?: { redirect_uri?: string; state?: string }) {
+    const redirectUri = query?.redirect_uri || defaultRedirect();
+    return makeClient(redirectUri).generateAuthUrl({
+      access_type: "online",
+      prompt: "consent",
+      state: query?.state || "login",
+      redirect_uri: redirectUri,
+      scope: [
+        "https://www.googleapis.com/auth/userinfo.profile",
+        "https://www.googleapis.com/auth/userinfo.email",
+      ],
+    });
+  }
+
+  async getToken(code: string, redirectUri?: string) {
+    const client = makeClient(redirectUri || defaultRedirect());
+    try {
+      const { tokens } = await client.getToken(code);
+      return tokens.access_token!;
+    } catch (err: any) {
+      // The code is single use and short lived (callback reloaded or too slow)
+      if (err?.response?.data?.error === "invalid_grant") {
+        throw new HttpException(
+          "Google sign-in expired, please sign in again",
+          400,
+        );
+      }
+      throw err;
+    }
+  }
+
+  async getUser(providerToken: string) {
+    const client = makeClient(defaultRedirect());
+    client.setCredentials({ access_token: providerToken });
+    const { data } = await google
+      .oauth2({ version: "v2", auth: client })
+      .userinfo.get();
+
+    return {
+      id: data.id!,
+      email: data.email!,
+    };
+  }
 }
