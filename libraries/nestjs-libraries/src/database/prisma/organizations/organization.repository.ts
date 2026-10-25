@@ -7,8 +7,8 @@ import { makeSecureId } from "@docgpt/nestjs-libraries/services/make.secure.id";
 export class OrganizationRepository {
   constructor(
     private _organization: PrismaRepository<"organization">,
-    private _userOrg: PrismaRepository<'userOrganization'>,
-    private _user: PrismaRepository<'user'>
+    private _userOrg: PrismaRepository<"userOrganization">,
+    private _user: PrismaRepository<"user">,
   ) {}
 
   async createOrgAndUser(
@@ -106,5 +106,71 @@ export class OrganizationRepository {
     });
 
     return create;
+  }
+
+  getOrgById(id: string) {
+    return this._organization.model.organization.findUnique({
+      where: {
+        id,
+      },
+    });
+  }
+
+  getUserOrg(id: string) {
+    return this._userOrg.model.userOrganization.findFirst({
+      where: {
+        id,
+      },
+      select: {
+        user: true,
+        organization: {
+          include: {
+            users: {
+              select: {
+                id: true,
+                disabled: true,
+                role: true,
+                userId: true,
+              },
+            },
+            subscription: {
+              select: {
+                subscriptionTier: true,
+                totalChannels: true,
+                isLifetime: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  async updateOrganization(
+    organizationId: string,
+    organizationData: {
+      name?: string;
+      description?: string | null;
+      allowTrial?: boolean;
+      isTrailing?: boolean;
+    },
+  ) {
+    return this._organization.model.organization.update({
+      where: {
+        id: organizationId,
+      },
+      data: organizationData,
+    });
+  }
+
+  async deleteTeamMember(orgId: string, userId: string) {
+    return this._userOrg.model.userOrganization.delete({
+      where: {
+        userId_organizationId: {
+          userId,
+          organizationId: orgId,
+        },
+      },
+    });
   }
 }

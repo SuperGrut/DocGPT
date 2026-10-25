@@ -7,8 +7,8 @@ import { AuthService } from "@docgpt/helpers/auth/auth.service";
 export class UsersRepository {
   constructor(private _user: PrismaRepository<"user">) {}
 
-  async getUserByEmail(email: string) {
-    return await this._user.model.user.findFirst({
+  getUserByEmail(email: string) {
+    return this._user.model.user.findFirst({
       where: {
         email: {
           equals: email,
@@ -28,6 +28,25 @@ export class UsersRepository {
     });
   }
 
+  getUserById(id: string) {
+    return this._user.model.user.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+      },
+    });
+  }
+
+  getUserByProvider(providerId: string, provider: Provider) {
+    return this._user.model.user.findFirst({
+      where: {
+        providerId,
+        providerName: provider,
+        deletedAt: null,
+      },
+    });
+  }
+
   updatePassword(id: string, password: string) {
     return this._user.model.user.update({
       where: {
@@ -37,6 +56,24 @@ export class UsersRepository {
       data: {
         password: AuthService.hashPassword(password),
       },
+    });
+  }
+
+  updateProfile(
+    userId: string,
+    profileData: {
+      name?: string;
+      lastName?: string;
+      bio?: string;
+      timezone?: number;
+      pictureId?: string;
+    },
+  ) {
+    return this._user.model.user.update({
+      where: {
+        id: userId,
+      },
+      data: profileData,
     });
   }
 

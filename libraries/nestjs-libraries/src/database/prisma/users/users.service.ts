@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { UsersRepository } from "@docgpt/nestjs-libraries/database/prisma/users/users.repository";
+import { Provider } from "@prisma/client";
 
 @Injectable()
 export class UsersService {
@@ -9,10 +10,29 @@ export class UsersService {
     return this._usersRepository.getUserByEmail(email);
   }
 
-  getUserById(id: string) {}
+  getUserById(id: string) {
+    return this._usersRepository.getUserById(id);
+  }
+
+  getUserByProvider(providerId: string, provider: Provider) {
+    return this._usersRepository.getUserByProvider(providerId, provider);
+  }
 
   updatePassword(id: string, password: string) {
     return this._usersRepository.updatePassword(id, password);
+  }
+
+  updateUserProfile(
+    userId: string,
+    profileData: {
+      name?: string;
+      lastName?: string;
+      bio?: string;
+      timezone?: number;
+      pictureId?: string;
+    },
+  ) {
+    return this._usersRepository.updateProfile(userId, profileData);
   }
 
   activateUser(id: string) {
