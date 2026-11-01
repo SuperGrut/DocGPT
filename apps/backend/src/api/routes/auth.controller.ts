@@ -1,5 +1,14 @@
 import { AuthService } from "@docgpt/backend/services/auth/auth.service";
-import { Body, Controller, Get, Param, Post, Query, Req, Res } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  Req,
+  Res,
+} from "@nestjs/common";
 import { Response, Request } from "express";
 import { RealIP } from "nestjs-real-ip";
 import { UserAgent } from "@docgpt/nestjs-libraries/user/user.agent.decorator";
@@ -208,5 +217,55 @@ export class AuthController {
     });
 
     return this._authService.oauthLink(provider, { ...query, state });
+  }
+
+  @Post("/oauth/:provider/exists")
+  @Post("/oauth/:provider/exists")
+  async oauthExists(
+    @Req() req: Request,
+    @Body("code") code: string,
+    @Body("redirect_uri") redirect_uri: string,
+    @Body("state") state: string,
+    @Param("provider") provider: string,
+    @Res({ passthrough: false }) response: Response,
+  ) {
+    // a cross-site form post can spoof any body field, a json body cannot
+    if (!req.headers["content-type"]?.includes("application/json")) {
+      return response.status(400).send("Invalid request");
+    }
+
+    const { jwt, token } = await this._authService.checkExists(
+      provider,
+      code,
+      redirect_uri,
+      state,
+      req?.cookies?.oauth_state,
+    );
+
+    if (token) {
+      return response.json({ token });
+    }
+
+    response.cookie("auth", jwt, {
+      domain: getCookieUrlFromDomain(process.env.FRONTEND_URL!),
+      ...(!process.env.NOT_SECURED
+        ? {
+            secure: true,
+            httpOnly: true,
+            sameSite: "none",
+          }
+        : {}),
+      expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365),
+    });
+
+    if (process.env.NOT_SECURED) {
+      response.header("auth", jwt);
+    }
+
+    response.header("reload", "true");
+
+    response.status(200).json({
+      login: true,
+    });
   }
 }

@@ -12,7 +12,7 @@ export interface RetrievalInput {
   query: string;
   documentIds: string[];
   topK?: number;
-}
+}a
 
 export interface RetrievalService {
   search(input: RetrievalInput): Promise<RetrievedChunk[]>;
