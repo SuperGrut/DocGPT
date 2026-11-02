@@ -1,35 +1,48 @@
-import { DocumentParser, ParserMetadata } from "./parser.interface";
+import { Inject, Injectable } from "@nestjs/common";
 
+import { UnsupportedFileTypeError } from "../errors/domain.errors";
+import { DOCUMENT_PARSERS, DocumentParser } from "../ports/parser.port";
+
+/**
+ * Looks up the parser for a MIME type. DocumentService validates uploads with supports(),
+ * the controller exposes supportedMimeTypes() to the file picker, and the worker calls get().
+ * Adding a format changes nothing here: enable the parser in parser.module.ts and it shows up everywhere.
+ */
+@Injectable()
 export class ParserRegistry {
-  private readonly parsers = new Map<string, DocumentParser>();
+  private readonly byMime = new Map<string, DocumentParser>();
+  private readonly byId = new Map<string, DocumentParser>();
 
-  register(parser: DocumentParser): void {
-    const id = parser.metadata.id;
-
-    if (this.parsers.has(id)) {
-      throw new Error(`Parser already registered: ${id}`);
+  constructor(@Inject(DOCUMENT_PARSERS) parsers: DocumentParser[]) {
+    for (const parser of parsers) {
+      if (this.byId.has(parser.id))
+        throw new Error(`Duplicate parser id '${parser.id}'`);
+      this.byId.set(parser.id, parser);
+      for (const mime of parser.mimeTypes) {
+        // Two parsers claiming one MIME type is a configuration mistake: fail at boot, not at upload time.
+        if (this.byMime.has(mime))
+          throw new Error(`MIME type '${mime}' is claimed by two parsers`);
+        this.byMime.set(mime, parser);
+      }
     }
-
-    this.parsers.set(id, parser);
   }
 
-  getParser(input: { fileName: string; mimeType: string }): DocumentParser {
-    const matches = [...this.parsers.values()].filter((parser) =>
-      parser.supports(input),
-    );
-
-    if (matches.length === 0) {
-      throw new Error("Unsupported document format");
-    }
-
-    if (matches.length > 1) {
-      throw new Error("Multiple parsers matched this document");
-    }
-
-    return matches[0];
+  supports(mimeType: string): boolean {
+    return this.byMime.has(mimeType);
   }
 
-  listSupportedFormats(): ParserMetadata[] {
-    return [...this.parsers.values()].map((parser) => parser.metadata);
+  get(mimeType: string): DocumentParser {
+    const parser = this.byMime.get(mimeType);
+    if (!parser) throw new UnsupportedFileTypeError(mimeType);
+    return parser;
+  }
+
+  /** For code that holds a stored Document.parserId (for example when explaining how chunks were made). */
+  getById(id: string): DocumentParser | undefined {
+    return this.byId.get(id);
+  }
+
+  supportedMimeTypes(): string[] {
+    return [...this.byMime.keys()];
   }
 }
