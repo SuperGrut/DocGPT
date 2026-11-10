@@ -33,10 +33,12 @@ export interface NormalizedWebhookEvent {
 export interface PaymentProvider {
   readonly name: PaymentProviderName;
 
+  //create order
   createSubscription(
     input: CreateProviderSubscriptionInput,
   ): Promise<ProviderSubscriptionResult>;
 
+  //verify order
   verifyWebhook(
     rawBody: Buffer,
     signature: string,

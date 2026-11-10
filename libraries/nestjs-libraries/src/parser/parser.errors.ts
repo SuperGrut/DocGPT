@@ -12,6 +12,9 @@ export type FailureCode =
   | "TOO_MANY_PAGES"
   | "TOO_MUCH_TEXT"
   | "TIMEOUT"
+  | "SOURCE_MISSING" //     the file is not where the document says it is
+  | "SOURCE_UNAVAILABLE" // the origin could not be read right now (network, throttling)
+  | "FILE_TOO_LARGE" //     the file is bigger than the loader's limit
   | "UNKNOWN";
 
 /**
