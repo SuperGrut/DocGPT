@@ -1,10 +1,10 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 
-import { Chunker, ChunkingStrategy } from "./interfaces/chunker.interface";
+import { Chunker, ChunkingStrategy } from "@docgpt/nestjs-libraries/chunker/chunker.interface";
 
-import { FixedSizeChunker } from "./strategies/fixed-size.chunker";
-import { RecursiveChunker } from "./strategies/recursive.chunker";
-import { LlmChunker } from "./strategies/llm.chunker";
+import { FixedSizeChunker } from "@docgpt/nestjs-libraries/chunker/strategies/fixed.size.chunker";
+import { RecursiveChunker } from "@docgpt/nestjs-libraries/chunker/strategies/recursive.chunker";
+import { LlmChunker } from "@docgpt/nestjs-libraries/chunker/strategies/llm.chunker";
 
 @Injectable()
 export class ChunkerRegistry {

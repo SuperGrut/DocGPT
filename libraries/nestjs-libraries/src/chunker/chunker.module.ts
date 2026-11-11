@@ -1,7 +1,7 @@
 import { Module } from "@nestjs/common";
 
-import { ChunkerRegistry } from "./chunker.registry";
-import { ChunkingService } from "./chunking.service";
+import { ChunkerRegistry } from "@docgpt/nestjs-libraries/chunker/chunker.registry";
+import { ChunkingService } from "@docgpt/nestjs-libraries/chunker/chunker.service";
 
 import { FixedSizeChunker } from "./strategies/fixed-size.chunker";
 import { RecursiveChunker } from "./strategies/recursive.chunker";
