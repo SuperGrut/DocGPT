@@ -1,3 +1,6 @@
+import { Injectable } from "@nestjs/common"; // not needed here; StorageAdapter applies it
+import { ConfigService } from "@nestjs/config";
+
 import {
   DeleteObjectCommand,
   GetObjectCommand,
@@ -11,12 +14,16 @@ import { Readable } from "node:stream";
 import {
   CreateDownloadUrlInput,
   CreateUploadUrlInput,
+  StorageAdapter,
   StorageNotFoundError,
   StorageObjectInfo,
   StorageProvider,
   UploadTarget,
-} from "../ports/storage.port";
-import { assertValidStorageKey, contentDisposition } from "./storage.utils";
+} from "@docgpt/nestjs-libraries/storage/provider.interface";
+import {
+  assertValidStorageKey,
+  contentDisposition,
+} from "@docgpt/nestjs-libraries/storage/storage.utils";
 
 export interface S3StorageConfig {
   bucket: string;
@@ -41,31 +48,44 @@ export interface S3StorageConfig {
  * The adapter name is configurable ('s3', 'r2'), so Document.storageProvider tells you which
  * bucket holds a file even when two S3-compatible stores are enabled at the same time.
  */
-export class S3StorageProvider implements StorageProvider {
-  private readonly client: S3Client;
-  private readonly signer: S3Client;
+export abstract class S3CompatibleStorage extends StorageProvider {
+  private _cfg?: S3StorageConfig;
+  private _client?: S3Client;
+  private _signer?: S3Client;
 
-  constructor(
-    readonly name: string,
-    private readonly cfg: S3StorageConfig,
-  ) {
-    const base = {
-      region: cfg.region,
-      forcePathStyle: cfg.forcePathStyle ?? false,
+  /** Called on first use, so a disabled backend never needs its env vars. */
+  protected abstract loadConfig(): S3StorageConfig;
+
+  protected get cfg(): S3StorageConfig {
+    return (this._cfg ??= this.loadConfig());
+  }
+
+  private baseOptions() {
+    return {
+      region: this.cfg.region,
+      forcePathStyle: this.cfg.forcePathStyle ?? false,
       credentials: {
-        accessKeyId: cfg.accessKeyId,
-        secretAccessKey: cfg.secretAccessKey,
+        accessKeyId: this.cfg.accessKeyId,
+        secretAccessKey: this.cfg.secretAccessKey,
       },
-      // Recent SDK versions add CRC32 checksum headers by default. Browsers cannot send them on a
-      // presigned PUT, and R2/MinIO may reject them, so only compute checksums when required.
+      // (keep your checksum comment here)
       requestChecksumCalculation: "WHEN_REQUIRED" as const,
       responseChecksumValidation: "WHEN_REQUIRED" as const,
     };
-    this.client = new S3Client({ ...base, endpoint: cfg.endpoint });
-    this.signer = new S3Client({
-      ...base,
-      endpoint: cfg.publicEndpoint ?? cfg.endpoint,
-    });
+  }
+
+  protected get client(): S3Client {
+    return (this._client ??= new S3Client({
+      ...this.baseOptions(),
+      endpoint: this.cfg.endpoint,
+    }));
+  }
+
+  protected get signer(): S3Client {
+    return (this._signer ??= new S3Client({
+      ...this.baseOptions(),
+      endpoint: this.cfg.publicEndpoint ?? this.cfg.endpoint,
+    }));
   }
 
   async createUploadUrl(input: CreateUploadUrlInput): Promise<UploadTarget> {
@@ -154,4 +174,44 @@ function isNotFound(e: unknown): boolean {
     err?.name === "NoSuchKey" ||
     err?.$metadata?.httpStatusCode === 404
   );
+}
+
+@StorageAdapter({ provider: "s3" })
+export class S3StorageProvider extends S3CompatibleStorage {
+  readonly name = "s3";
+
+  constructor(private readonly config: ConfigService) {
+    super();
+  }
+
+  protected loadConfig(): S3StorageConfig {
+    return {
+      bucket: this.config.getOrThrow("S3_BUCKET"),
+      region: this.config.getOrThrow("S3_REGION"),
+      endpoint: this.config.get("S3_ENDPOINT"),
+      publicEndpoint: this.config.get("S3_PUBLIC_ENDPOINT"),
+      accessKeyId: this.config.getOrThrow("S3_ACCESS_KEY_ID"),
+      secretAccessKey: this.config.getOrThrow("S3_SECRET_ACCESS_KEY"),
+      forcePathStyle: this.config.get("S3_FORCE_PATH_STYLE") === "true",
+    };
+  }
+}
+
+@StorageAdapter({ provider: "r2" })
+export class R2StorageProvider extends S3CompatibleStorage {
+  readonly name = "r2";
+
+  constructor(private readonly config: ConfigService) {
+    super();
+  }
+
+  protected loadConfig(): S3StorageConfig {
+    return {
+      bucket: this.config.getOrThrow("R2_BUCKET"),
+      region: "auto",
+      endpoint: this.config.getOrThrow("R2_ENDPOINT"),
+      accessKeyId: this.config.getOrThrow("R2_ACCESS_KEY_ID"),
+      secretAccessKey: this.config.getOrThrow("R2_SECRET_ACCESS_KEY"),
+    };
+  }
 }

@@ -8,11 +8,12 @@ import { pipeline } from "node:stream/promises";
 import {
   CreateDownloadUrlInput,
   CreateUploadUrlInput,
+  StorageAdapter,
   StorageNotFoundError,
   StorageObjectInfo,
   StorageProvider,
   UploadTarget,
-} from "../../ports/storage.port";
+} from "@docgpt/nestjs-libraries/storage/provider.interface";
 import {
   InvalidStorageKeyError,
   assertValidStorageKey,
@@ -49,15 +50,35 @@ const nowSec = () => Math.floor(Date.now() / 1000);
  * It exists so you can run the whole upload flow without a cloud account.
  * Do not use it in production (the module refuses to start it there by default).
  */
-export class LocalStorageProvider implements StorageProvider {
+@StorageAdapter({ provider: "local" })
+export class LocalStorageProvider extends StorageProvider {
   readonly name = "local";
-  private readonly root: string;
 
-  constructor(private readonly cfg: LocalStorageConfig) {
-    if (!cfg.secret || cfg.secret.length < 32) {
-      throw new Error("STORAGE_LOCAL_SECRET must be at least 32 characters");
+  private _cfg?: LocalStorageConfig;
+  private _root?: string;
+
+  constructor(private readonly config: ConfigService) {
+    super();
+  }
+
+  /** Resolved on first use, so apps that don't enable "local" never need its env vars. */
+  private get cfg(): LocalStorageConfig {
+    if (!this._cfg) {
+      const secret = this.config.get<string>("STORAGE_LOCAL_SECRET") ?? "";
+      if (secret.length < 32) {
+        throw new Error("STORAGE_LOCAL_SECRET must be at least 32 characters");
+      }
+      this._cfg = {
+        baseDir: this.config.getOrThrow<string>("STORAGE_LOCAL_DIR"),
+        publicBaseUrl: this.config.getOrThrow<string>("API_PUBLIC_URL"),
+        secret,
+      };
     }
-    this.root = resolve(cfg.baseDir);
+    return this._cfg;
+  }
+
+  private get root(): string {
+    return (this._root ??= resolve(this.cfg.baseDir));
   }
 
   async createUploadUrl(input: CreateUploadUrlInput): Promise<UploadTarget> {

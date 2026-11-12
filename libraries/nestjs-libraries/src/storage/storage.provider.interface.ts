@@ -46,7 +46,7 @@ export interface CreateDownloadUrlInput {
  *  - delete() is idempotent: deleting a missing object does not throw
  *  - an upload larger than maxBytes, or sent after expiresInSec, is rejected
  */
-export interface StorageProvider {
+export interface StorageProviderInterface {
   /** Stored on every Document row (storageProvider), so reads can find the right adapter later. */
   readonly name: string;
   createUploadUrl(input: CreateUploadUrlInput): Promise<UploadTarget>;

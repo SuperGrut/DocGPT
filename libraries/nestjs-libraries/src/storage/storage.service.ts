@@ -1,49 +1,47 @@
 import { Injectable } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
-import { StorageProvider } from "@prisma/client";
-import { randomUUID } from "node:crypto";
+import type { Readable } from "node:stream";
 
-import { StorageProviderRegistry } from "@docgpt/nestjs-libraries/storage/storage.provider.registry";
-import { StoredFile } from "@docgpt/nestjs-libraries/storage/storage.provider.interface";
+import {
+  CreateDownloadUrlInput,
+  CreateUploadUrlInput,
+  StorageObjectInfo,
+  UploadTarget,
+} from "@docgpt/nestjs-libraries/storage/provider.interface";
+import { StorageManager } from "@docgpt/nestjs-libraries/storage/providers/providers.manager";
 
 @Injectable()
 export class FileStorageService {
-  constructor(
-    private readonly registry: StorageProviderRegistry,
-    private readonly config: ConfigService,
-  ) {}
+  constructor(private readonly _storage: StorageManager) {}
 
-  getDefaultProvider(): StorageProvider {
-    const value =
-      this.config.get<string>("DEFAULT_STORAGE_PROVIDER") ?? "LOCAL";
-
-    if (!Object.values(StorageProvider).includes(value as StorageProvider)) {
-      throw new Error(`Invalid default storage provider: ${value}`);
-    }
-
-    return value as StorageProvider;
+  /** Name to store on the Document row for a new file. */
+  getWriteProviderName(): string {
+    return this._storage.forWrite().name;
   }
 
-  async upload(
-    provider: StorageProvider,
-    ownerId: string,
-    buffer: Buffer,
-    contentType: string,
-  ): Promise<StoredFile> {
-    const key = `${ownerId}/${randomUUID()}`;
-
-    return this.registry.get(provider).upload({
-      key,
-      buffer,
-      contentType,
-    });
+  createUploadUrl(input: CreateUploadUrlInput): Promise<UploadTarget> {
+    return this._storage.forWrite().createUploadUrl(input);
   }
 
-  async download(provider: StorageProvider, key: string): Promise<Buffer> {
-    return this.registry.get(provider).download(key);
+  stat(
+    doc: { storageProvider: string },
+    key: string,
+  ): Promise<StorageObjectInfo | null> {
+    return this._storage.forDocument(doc).stat(key);
   }
 
-  async delete(provider: StorageProvider, key: string): Promise<void> {
-    return this.registry.get(provider).delete(key);
+  getStream(doc: { storageProvider: string }, key: string): Promise<Readable> {
+    return this._storage.forDocument(doc).getStream(key);
+  }
+
+  createDownloadUrl(
+    doc: { storageProvider: string },
+    key: string,
+    input: CreateDownloadUrlInput,
+  ): Promise<string> {
+    return this._storage.forDocument(doc).createDownloadUrl(key, input);
+  }
+
+  delete(doc: { storageProvider: string }, key: string): Promise<void> {
+    return this._storage.forDocument(doc).delete(key);
   }
 }
