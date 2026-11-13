@@ -1,96 +1,73 @@
 import {
+  Body,
   Controller,
-  Post,
-  Get,
   Delete,
-  Param,
-  UseGuards,
-  UseInterceptors,
-  UploadedFile,
-  ParseUUIDPipe,
+  Get,
   HttpCode,
   HttpStatus,
-  Res,
+  Param,
+  Post,
+  UseGuards,
 } from "@nestjs/common";
-
-import { FileInterceptor } from "@nestjs/platform-express";
-import { Response } from "express";
-
-import { DocumentService } from "./document.service";
+import { IsInt, IsNotEmpty, IsString, Max, Min } from "class-validator";
+import { DocumentService } from "@docgpt/nestjs-libraries/database/prisma/document/document.service";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
-import { CurrentUser } from "../auth/decorators/current-user.decorator";
+import { GetOrgFromRequest } from "@docgpt/nestjs-libraries/user/org.from.request";
+import { RequestUploadDto } from "@docgpt/nestjs-libraries/dtos/document/request.upload.dto";
+import { Organization } from "@prisma/client";
 
 @Controller("documents")
 @UseGuards(JwtAuthGuard)
 export class DocumentController {
   constructor(private readonly documentService: DocumentService) {}
 
-  /**
-   * Upload a document.
-   */
-  @Post("upload")
-  @UseInterceptors(FileInterceptor("file"))
-  async uploadDocument(
-    @CurrentUser("id") userId: string,
-    @UploadedFile() file: Express.Multer.File,
+  @Post()
+  requestUpload(
+    @GetOrgFromRequest() org: Organization,
+    @Body() body: RequestUploadDto,
   ) {
-    return this.documentService.uploadDocument(userId, file);
+    return this.documentService.requestUpload(orgId, body);
   }
 
-  /**
-   * Get all documents belonging to the authenticated user.
-   */
+  /** Step 2: confirm the browser finished uploading. */
+  @Post(":documentId/complete")
+  @HttpCode(HttpStatus.OK)
+  completeUpload(
+    @CurrentUser("orgId") orgId: string,
+    @Param("documentId") documentId: string,
+  ) {
+    return this.documentService.completeUpload(documentId, orgId);
+  }
+
   @Get()
-  async getUserDocuments(@CurrentUser("id") userId: string) {
-    return this.documentService.getUserDocuments(userId);
+  list(@CurrentUser("orgId") orgId: string) {
+    return this.documentService.list(orgId);
   }
 
-  /**
-   * Get a document by ID.
-   */
   @Get(":documentId")
-  async getDocument(
-    @CurrentUser("id") userId: string,
-    @Param("documentId", ParseUUIDPipe)
-    documentId: string,
+  get(
+    @CurrentUser("orgId") orgId: string,
+    @Param("documentId") documentId: string,
   ) {
-    return this.documentService.getDocument(documentId, userId);
+    return this.documentService.get(documentId, orgId);
   }
 
-  /**
-   * Download a document.
-   */
-  @Get(":documentId/download")
-  async downloadDocument(
-    @CurrentUser("id") userId: string,
-    @Param("documentId", ParseUUIDPipe)
-    documentId: string,
-    @Res() res: Response,
+  /** Returns a short-lived signed URL. The browser downloads straight from storage. */
+  @Get(":documentId/download-url")
+  async downloadUrl(
+    @CurrentUser("orgId") orgId: string,
+    @Param("documentId") documentId: string,
   ) {
-    const result = await this.documentService.downloadDocument(
-      documentId,
-      userId,
-    );
-
-    res.set({
-      "Content-Type": result.mimeType,
-      "Content-Disposition": `attachment; filename="${result.fileName}"`,
-      "Content-Length": result.buffer.length,
-    });
-
-    return res.send(result.buffer);
+    const url = await this.documentService.getDownloadUrl(documentId, orgId);
+    return { url };
   }
 
-  /**
-   * Delete a document.
-   */
   @Delete(":documentId")
   @HttpCode(HttpStatus.NO_CONTENT)
-  async deleteDocument(
-    @CurrentUser("id") userId: string,
-    @Param("documentId", ParseUUIDPipe)
-    documentId: string,
+  async delete(
+    @CurrentUser("orgId") orgId: string,
+    @Param("documentId") documentId: string,
   ) {
-    await this.documentService.deleteDocument(documentId, userId);
+    await this.documentService.deleteDocument(documentId, orgId);
   }
 }

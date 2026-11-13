@@ -7,7 +7,7 @@ import { ConfigService } from "@nestjs/config";
 
 import { FileStorageService } from "@docgpt/nestjs-libraries/storage/storage.service";
 import { buildDocumentKey } from "@docgpt/nestjs-libraries/storage/storage.utils";
-import { PrismaService } from "../prisma/prisma.service";
+import { DocumentRepository } from "@docgpt/nestjs-libraries/database/prisma/document/document.repository";
 
 const UPLOAD_URL_TTL_SEC = 15 * 60;
 const DOWNLOAD_URL_TTL_SEC = 5 * 60;
@@ -15,7 +15,7 @@ const DOWNLOAD_URL_TTL_SEC = 5 * 60;
 @Injectable()
 export class DocumentService {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly _documentRepository: DocumentRepository,
     private readonly fileStorage: FileStorageService,
     private readonly config: ConfigService,
   ) {}
@@ -24,27 +24,22 @@ export class DocumentService {
     return this.config.get<number>("MAX_UPLOAD_BYTES") ?? 25 * 1024 * 1024;
   }
 
-  /** Step 1: create the row, return a signed URL for the browser to PUT to. */
   async requestUpload(
-    userId: string,
+    orgId: string,
     file: { fileName: string; mimeType: string; sizeBytes: number },
   ) {
     if (file.sizeBytes <= 0 || file.sizeBytes > this.maxBytes) {
       throw new BadRequestException(`File must be 1 to ${this.maxBytes} bytes`);
     }
 
-    const key = buildDocumentKey(userId);
+    const key = buildDocumentKey(orgId, documentId);
 
-    // Row first: if this fails, nothing exists in storage yet, so nothing to clean up.
-    const document = await this.prisma.document.create({
-      data: {
-        userId,
-        fileName: file.fileName,
-        mimeType: file.mimeType,
-        storageProvider: this.fileStorage.getWriteProviderName(),
-        storageKey: key,
-        status: "UPLOADING",
-      },
+    const document = await this._documentRepository.create({
+      orgId,
+      fileName: file.fileName,
+      mimeType: file.mimeType,
+      storageProvider: this.fileStorage.getWriteProviderName(),
+      storageKey: key,
     });
 
     const target = await this.fileStorage.createUploadUrl({
