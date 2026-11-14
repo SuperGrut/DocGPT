@@ -1,63 +1,21 @@
-import { FactoryProvider, Module } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import { Module } from "@nestjs/common";
 
-import { StorageManager } from "../../storage/storage.manager";
-import { StorageModule } from "../../storage/storage.module";
-import { DOCUMENT_LOADERS } from "./document.loader";
-import type { DocumentLoader } from "./document.loader";
-import { LoaderRegistry } from "./loader.registry";
-import { StorageDocumentLoader } from "./storage.loader";
+import { StorageModule } from "@docgpt/nestjs-libraries/storage/storage.module";
 
-interface LoaderDependencies {
-  storage: StorageManager;
-}
+import { LoaderService } from "@docgpt/nestjs-libraries/loader/loader.service";
+import { LoaderManager } from "@docgpt/nestjs-libraries/loader/providers/loader.manager";
+import { PdfLoaderProvider } from "@docgpt/nestjs-libraries/loader/providers/pdf.loader.provider";
+import { TxtLoaderProvider } from "@docgpt/nestjs-libraries/loader/providers/txt.loader.provider";
 
-/**
- * Every loader the code base knows, by name. THE place to add an origin:
- *   1. add the new kind to DocumentSource
- *   2. write UrlDocumentLoader implements DocumentLoader<'url'>
- *   3. add   url: (deps) => new UrlDocumentLoader(...)   below
- *   4. set   LOADERS_ENABLED=storage,url
- */
-const LOADER_FACTORIES: Record<
-  string,
-  (deps: LoaderDependencies) => DocumentLoader
-> = {
-  storage: ({ storage }) => new StorageDocumentLoader(storage),
-};
-
-/** Exported so it can be tested without starting Nest. */
-export function buildLoaders(
-  names: readonly string[],
-  deps: LoaderDependencies,
-): DocumentLoader[] {
-  return names.map((name) => {
-    const create = LOADER_FACTORIES[name];
-    if (!create) {
-      throw new Error(
-        `Unknown loader '${name}' in LOADERS_ENABLED. Known: ${Object.keys(LOADER_FACTORIES).join(", ")}`,
-      );
-    }
-    return create(deps);
-  });
-}
-
-const loadersProvider: FactoryProvider<DocumentLoader[]> = {
-  provide: DOCUMENT_LOADERS,
-  inject: [ConfigService, StorageManager],
-  useFactory: (cfg: ConfigService, storage: StorageManager) => {
-    const names = (cfg.get<string>("LOADERS_ENABLED") ?? "storage")
-      .split(",")
-      .map((name) => name.trim())
-      .filter(Boolean);
-    return buildLoaders(names, { storage });
-  },
-};
-
-/** Needs ConfigModule.forRoot({ isGlobal: true }) in the app, like the storage and parser modules. */
+// Importing the provider files here is what runs their @Loader decorators.
 @Module({
-  imports: [StorageModule.forRoot()],
-  providers: [loadersProvider, LoaderRegistry],
-  exports: [LoaderRegistry],
+  imports: [StorageModule],
+  providers: [
+    LoaderManager,
+    LoaderService,
+    PdfLoaderProvider,
+    TxtLoaderProvider,
+  ],
+  exports: [LoaderService, LoaderManager],
 })
 export class LoaderModule {}

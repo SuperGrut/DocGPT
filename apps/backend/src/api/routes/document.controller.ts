@@ -16,21 +16,21 @@ import { GetOrgFromRequest } from "@docgpt/nestjs-libraries/user/org.from.reques
 import { RequestUploadDto } from "@docgpt/nestjs-libraries/dtos/document/request.upload.dto";
 import { Organization } from "@prisma/client";
 
-@Controller("documents")
+@Controller("/documents")
 @UseGuards(JwtAuthGuard)
 export class DocumentController {
   constructor(private readonly documentService: DocumentService) {}
 
-  @Post()
+  @Post('request-upload')
   requestUpload(
     @GetOrgFromRequest() org: Organization,
     @Body() body: RequestUploadDto,
   ) {
-    return this.documentService.requestUpload(orgId, body);
+    return this.documentService.requestUpload(org.id, body);
   }
 
   /** Step 2: confirm the browser finished uploading. */
-  @Post(":documentId/complete")
+  @Post("/:documentId/complete")
   @HttpCode(HttpStatus.OK)
   completeUpload(
     @CurrentUser("orgId") orgId: string,

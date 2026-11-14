@@ -32,7 +32,7 @@ export class DocumentService {
       throw new BadRequestException(`File must be 1 to ${this.maxBytes} bytes`);
     }
 
-    const key = buildDocumentKey(orgId, documentId);
+    const key = buildDocumentKey(orgId);
 
     const document = await this._documentRepository.create({
       orgId,

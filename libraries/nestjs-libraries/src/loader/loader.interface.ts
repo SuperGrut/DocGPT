@@ -1,25 +1,60 @@
-import type { DocumentSourceKind, SourceOfKind } from "./document-source";
-import type { LoadLimits, LoadedDocument } from "./loaded-document";
+import { Injectable } from "@nestjs/common";
 
-/** DI token: the list of every enabled DocumentLoader. */
-export const DOCUMENT_LOADERS = Symbol("DOCUMENT_LOADERS");
+export type Block =
+  | { type: "text"; order: number; page?: number; text: string }
+  | { type: "table"; order: number; page?: number; markdown: string }
+  | {
+      type: "image";
+      order: number;
+      page?: number;
+      assetKey: string;
+      caption?: string;
+    };
 
-/**
- * Answers "where do the bytes come from". Answering "what format are they" is the parser's job.
- *
- * Contract (every loader must follow it; the tests check it):
- *  - reads at most limits.maxBytes, counting the bytes that actually arrive, and fails with
- *    ProcessingError('FILE_TOO_LARGE') beyond that
- *  - computes the SHA-256 while reading, in the same pass
- *  - never looks inside the file: an empty or corrupt file loads fine, the parser decides about it
- *  - fails ONLY with ProcessingError. `retryable` is true for temporary trouble (network,
- *    throttling) and false for permanent problems (file missing, too large), so the workflow
- *    retries exactly the right failures
- *  - stops promptly when limits.signal is aborted, and releases every stream it opened
- */
-export interface DocumentLoader<
-  K extends DocumentSourceKind = DocumentSourceKind,
-> {
-  readonly kind: K;
-  load(source: SourceOfKind<K>, limits: LoadLimits): Promise<LoadedDocument>;
+export interface LoadedDocument {
+  blocks: Block[];
+  metadata: { pageCount?: number; title?: string };
+  loaderName: string;
+  loaderVersion: string;
+}
+
+export interface LoaderInput {
+  buffer: Buffer;
+  fileName: string;
+  docId: string;
+  maxPages: number;
+}
+
+export abstract class DocumentLoader {
+  /** Stable identifier, recorded with the parsed output. */
+  abstract readonly name: string;
+  /** Bump whenever extraction output changes, so stale documents can be re-ingested. */
+  abstract readonly version: string;
+  abstract load(input: LoaderInput): Promise<LoadedDocument>;
+}
+
+export interface LoaderRegistration {
+  target: any;
+  mimeTypes: string[];
+}
+
+export const LOADER_METADATA = "document-loader";
+
+export function Loader(params: { mimeTypes: string[] }) {
+  return function (target: any) {
+    Injectable()(target);
+
+    const existing: LoaderRegistration[] =
+      Reflect.getMetadata(LOADER_METADATA, DocumentLoader) || [];
+
+    for (const mime of params.mimeTypes) {
+      if (existing.some((r) => r.mimeTypes.includes(mime))) {
+        throw new Error(`Duplicate loader for MIME type '${mime}'`);
+      }
+    }
+
+    existing.push({ target, mimeTypes: params.mimeTypes });
+
+    Reflect.defineMetadata(LOADER_METADATA, existing, DocumentLoader);
+  };
 }
