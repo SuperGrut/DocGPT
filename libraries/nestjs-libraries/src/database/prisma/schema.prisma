@@ -160,3 +160,30 @@ model Document {
   @@index([orgId, createdAt])
   @@index([status, createdAt])
 }
+
+model DocumentParse {
+  documentId    String   @id
+  loaderName    String
+  loaderVersion String
+  data          Json
+  createdAt     DateTime @default(now())
+  document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+}
+
+model DocumentChunk {
+  id             String   @id
+  documentId     String
+  index          Int
+  text           String
+  tokenCount     Int
+  pageStart      Int?
+  pageEnd        Int?
+  sourceBlocks   Int[]
+  chunkerName    String
+  chunkerVersion String
+  createdAt      DateTime @default(now())
+  document       Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, index])
+  @@index([documentId])
+}

@@ -1,29 +1,21 @@
 import { Module } from "@nestjs/common";
 
-import { ChunkerRegistry } from "@docgpt/nestjs-libraries/chunker/chunker.registry";
-import { ChunkingService } from "@docgpt/nestjs-libraries/chunker/chunker.service";
+import { TokenCounter } from "@docgpt/nestjs-libraries/chunker/chunker.interface";
+import { ChunkerService } from "@docgpt/nestjs-libraries/chunker/chunker.service";
+import { FixedChunker } from "@docgpt/nestjs-libraries/chunker/providers/fixed.chunker.provider";
+import { ChunkerManager } from "@docgpt/nestjs-libraries/chunker/providers/chunker.manager";
+import { RecursiveChunker } from "@docgpt/nestjs-libraries/chunker/providers/recursive.chunker.provider";
+import { ApproxTokenCounter } from "@docgpt/nestjs-libraries/chunker/token.counter";
 
-import { FixedSizeChunker } from "./strategies/fixed-size.chunker";
-import { RecursiveChunker } from "./strategies/recursive.chunker";
-import { LlmChunker } from "./strategies/llm.chunker";
-
-import { SEMANTIC_BOUNDARY_DETECTOR } from "./strategies/llm.chunker";
-
+// Assumes PrismaService and ConfigService come from global modules, as in the loader module.
 @Module({
   providers: [
-    FixedSizeChunker,
-    RecursiveChunker,
-    LlmChunker,
-
-    ChunkerRegistry,
-    ChunkingService,
-
-    // Register your actual LLM boundary detector here.
-    // {
-    //   provide: SEMANTIC_BOUNDARY_DETECTOR,
-    //   useClass: OpenAiSemanticBoundaryDetector,
-    // },
+    { provide: TokenCounter, useClass: ApproxTokenCounter },
+    RecursiveChunker, // importing the classes is what runs their @Chunker decorators
+    FixedChunker,
+    ChunkerManager,
+    ChunkerService,
   ],
-  exports: [ChunkingService],
+  exports: [ChunkerService],
 })
 export class ChunkerModule {}
