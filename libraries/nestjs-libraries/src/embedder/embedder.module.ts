@@ -1,23 +1,20 @@
 import { Module } from "@nestjs/common";
-import { ConfigModule } from "@nestjs/config";
 
-import { EmbedderRegistry } from "./embedder.registry";
-import { EmbeddingService } from "./embedding.service";
-
-import { OpenAIEmbedder } from "./providers/openai.embedder";
-import { GeminiEmbedder } from "./providers/gemini.embedder";
-import { LocalEmbedder } from "./providers/local.embedder";
+import { EmbedderService } from "./embedder.service";
+import { PgVectorStore } from "./pgvector.store";
+import { EmbedderManager } from "./providers/embedder.manager";
+import { LocalEmbedder } from "./providers/local.embedder.provider";
+import { OpenAIEmbedder } from "./providers/openai.embedder.provider";
+import { VectorStore } from "./vector-store.port";
 
 @Module({
-  imports: [ConfigModule],
   providers: [
-    OpenAIEmbedder,
-    GeminiEmbedder,
+    { provide: VectorStore, useClass: PgVectorStore },
+    OpenAIEmbedder, // importing the classes is what runs their @Embedder decorators
     LocalEmbedder,
-
-    EmbedderRegistry,
-    EmbeddingService,
+    EmbedderManager,
+    EmbedderService,
   ],
-  exports: [EmbeddingService],
+  exports: [EmbedderService],
 })
 export class EmbedderModule {}

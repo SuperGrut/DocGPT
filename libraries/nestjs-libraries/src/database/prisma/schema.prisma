@@ -183,7 +183,22 @@ model DocumentChunk {
   chunkerVersion String
   createdAt      DateTime @default(now())
   document       Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-
+  
+  embeddings     ChunkEmbedding[]
   @@unique([documentId, index])
   @@index([documentId])
 }
+
+model ChunkEmbedding {
+  chunkId    String
+  model      String
+  dimensions Int
+  embedding  Unsupported("vector")
+  createdAt  DateTime @default(now())
+
+  chunk DocumentChunk @relation(fields: [chunkId], references: [id], onDelete: Cascade)
+
+  @@id([chunkId, model])
+  @@index([model])
+}
+
