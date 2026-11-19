@@ -202,3 +202,43 @@ model ChunkEmbedding {
   @@index([model])
 }
 
+enum ChatMessageRole {
+  USER
+  ASSISTANT
+}
+
+enum ChatMessageStatus {
+  COMPLETE
+  INTERRUPTED // client stopped the stream; partial text is kept
+  FAILED
+}
+
+model Chat {
+  id              String    @id @default(cuid())
+  userId          String
+  title           String?   // null until set by the user or auto-generated
+  documentIds     String[]  // empty = search all of the user's documents
+  generatingSince DateTime? // lock: set while an answer is streaming
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now())
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([userId, updatedAt])
+}
+
+model ChatMessage {
+  id        String            @id @default(cuid())
+  chatId    String
+  role      ChatMessageRole
+  content   String            @default("")
+  status    ChatMessageStatus @default(COMPLETE)
+  sources   Json              @default("[]") // snapshot of cited chunks
+  createdAt DateTime          @default(now())
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, createdAt])
+}
+
