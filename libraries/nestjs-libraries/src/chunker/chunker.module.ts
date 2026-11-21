@@ -16,6 +16,6 @@ import { ApproxTokenCounter } from "@docgpt/nestjs-libraries/chunker/token.count
     ChunkerManager,
     ChunkerService,
   ],
-  exports: [ChunkerService],
+  exports: [ChunkerService, TokenCounter],
 })
 export class ChunkerModule {}

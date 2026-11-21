@@ -1,46 +1,31 @@
 import { Module } from "@nestjs/common";
 
+import { TokenCounter } from "../chunker/chunker.interface";
+import { ApproxTokenCounter } from "../chunker/token-counter";
 import { EmbedderModule } from "../embedder/embedder.module";
-import { VectorStoreModule } from "../vector-store/vector-store.module";
-import { PrismaModule } from "../../prisma/prisma.module";
-
+import { ContextCompressor } from "./compress/context.compressor";
+import { CohereReranker } from "./rerank/providers/cohere.reranker.provider";
+import { LlmReranker } from "./rerank/providers/llm.reranker.provider";
+import { NoopReranker } from "./rerank/providers/noop.reranker.provider";
+import { RerankerManager } from "./rerank/providers/reranker.manager";
+import { TeiReranker } from "./rerank/providers/tei.reranker.provider";
+import { RetrievalLlm } from "./retrieval.ports";
+import { RetrievalRepository } from "./retrieval.repository";
 import { RetrievalService } from "./retrieval.service";
 
-import { VectorSearchService } from "./search/vector-search.service";
-import { KeywordSearchService } from "./search/keyword-search.service";
-import { HybridSearchService } from "./search/hybrid-search.service";
-
-import { IdentityReranker } from "./reranking/identity.reranker";
-import { RerankingService } from "./reranking/reranking.service";
-
-import { PassthroughCompressor } from "./compression/passthrough.compressor";
-import { ContextCompressionService } from "./compression/context-compression.service";
-
-import { Reranker } from "./interfaces/reranker.interface";
-import { ContextCompressor } from "./interfaces/context-compressor.interface";
-
 @Module({
-  imports: [PrismaModule, EmbedderModule, VectorStoreModule],
+  imports: [EmbedderModule /*, LlmModule */],
   providers: [
-    VectorSearchService,
-    KeywordSearchService,
-    HybridSearchService,
-
-    IdentityReranker,
-    {
-      provide: Reranker,
-      useExisting: IdentityReranker,
-    },
-    RerankingService,
-
-    PassthroughCompressor,
-    {
-      provide: ContextCompressor,
-      useExisting: PassthroughCompressor,
-    },
-    ContextCompressionService,
-
     RetrievalService,
+    RetrievalRepository,
+    ContextCompressor,
+    { provide: TokenCounter, useClass: ApproxTokenCounter }, // swap for your tiktoken counter if you bound one
+    CohereReranker, // importing the classes is what runs their decorators
+    TeiReranker,
+    LlmReranker,
+    NoopReranker,
+    RerankerManager,
+    { provide: RetrievalLlm, useExisting: LlmService }, // your LLM client; add an adapter if signatures differ
   ],
   exports: [RetrievalService],
 })
