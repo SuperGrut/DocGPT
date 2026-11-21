@@ -183,7 +183,10 @@ model DocumentChunk {
   chunkerVersion String
   createdAt      DateTime @default(now())
   document       Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  
+  context        String?                    // null = not contextualized yet
+  contextModel   String?                    // "<model>@<prompt version>", to find stale contexts
+  search         Unsupported("tsvector")?   // generated column, created in the SQL below
+
   embeddings     ChunkEmbedding[]
   @@unique([documentId, index])
   @@index([documentId])
