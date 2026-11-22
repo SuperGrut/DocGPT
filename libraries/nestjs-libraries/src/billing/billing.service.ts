@@ -1,232 +1,275 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-
 import {
-  PaymentProviderName,
-  SubscriptionStatus,
-  PaymentStatus,
-} from "@prisma/client";
+  BadGatewayException,
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { Subscription } from "@prisma/client";
 
-import { PrismaService } from "../prisma/prisma.service";
-import { NormalizedWebhookEvent } from "./interfaces/payment-provider.interface";
+import { ChangePlanDto, CheckoutDto } from "./billing.dto";
+import { BillingRepository } from "./billing.repository";
+import { EntitlementsService } from "./entitlements/entitlements.service";
+import {
+  INTERVALS,
+  PLANS,
+  PaidPlanKey,
+  publicLimits,
+} from "./plans/plans.catalog";
+import { PricesService } from "./plans/prices.service";
+import { ProviderRouter } from "./routing/provider-router";
+import {
+  ProviderError,
+  UnsupportedOperationError,
+} from "./providers/payment-provider.interface";
+import { PaymentProviderManager } from "./providers/payment-provider.manager";
+import { SubscriptionSyncService } from "./webhooks/subscription-sync.service";
 
 @Injectable()
-export class BillingService {
-  constructor(private readonly prisma: PrismaService) {}
+export class BillingService implements OnModuleInit {
+  private readonly logger = new Logger(BillingService.name);
 
-  async getUserBilling(userId: string) {
-    return this.prisma.subscription.findFirst({
-      where: {
-        userId,
-        status: {
-          in: [
-            SubscriptionStatus.TRIALING,
-            SubscriptionStatus.ACTIVE,
-            SubscriptionStatus.PAST_DUE,
-            SubscriptionStatus.PAUSED,
-          ],
-        },
+  constructor(
+    private readonly repo: BillingRepository,
+    private readonly entitlements: EntitlementsService,
+    private readonly providers: PaymentProviderManager,
+    private readonly router: ProviderRouter,
+    private readonly prices: PricesService,
+    private readonly sync: SubscriptionSyncService,
+    private readonly config: ConfigService,
+  ) {}
+
+  // Fail at boot, not on the first checkout.
+  onModuleInit() {
+    if (!this.entitlements.enabled) return;
+    const enabled = this.providers.enabledNames();
+    if (!enabled.length)
+      throw new Error("BILLING_ENABLED=true but BILLING_PROVIDERS is empty");
+    for (const name of enabled) this.providers.get(name).validate();
+    this.router.validate(enabled);
+    void this.config.getOrThrow<string>("APP_URL");
+  }
+
+  // ---- read ----
+
+  listPlans(country?: string) {
+    const provider = this.router.providerFor(country);
+    const currency = this.router.currencyFor(provider);
+    return Object.values(PLANS).map((plan) => ({
+      key: plan.key,
+      name: plan.name,
+      limits: publicLimits(plan.limits),
+      // Only intervals that are actually configured at the provider are offered.
+      prices: plan.prices
+        ? INTERVALS.filter((i) =>
+            this.prices.providerPriceId(provider, plan.key as PaidPlanKey, i),
+          ).map((interval) => ({
+            interval,
+            currency,
+            amount: plan.prices![interval][currency],
+          }))
+        : [],
+    }));
+  }
+
+  async getOverview(userId: string) {
+    const { plan, subscription } = await this.entitlements.getPlan(userId);
+    const provider = subscription
+      ? this.providers.tryGet(subscription.provider)
+      : null;
+    return {
+      plan: {
+        key: plan.key,
+        name: plan.name,
+        limits: publicLimits(plan.limits),
       },
-      include: {
-        plan: true,
+      subscription: subscription && {
+        provider: subscription.provider,
+        interval: subscription.interval,
+        status: subscription.status,
+        currentPeriodEnd: subscription.currentPeriodEnd,
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
       },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
-  }
-
-  async hasActiveSubscription(userId: string): Promise<boolean> {
-    const subscription = await this.prisma.subscription.findFirst({
-      where: {
-        userId,
-        status: SubscriptionStatus.ACTIVE,
-      },
-    });
-
-    return !!subscription;
-  }
-
-  async processWebhook(
-    provider: PaymentProviderName,
-    event: NormalizedWebhookEvent,
-  ) {
-    // Claim the event once. Duplicate webhook deliveries are normal.
-    try {
-      await this.prisma.webhookEvent.create({
-        data: {
-          provider,
-          externalEventId: event.eventId,
-          eventType: event.type,
-        },
-      });
-    } catch (error) {
-      // A unique constraint violation means this event was already received.
-      const existing = await this.prisma.webhookEvent.findUnique({
-        where: {
-          provider_externalEventId: {
-            provider,
-            externalEventId: event.eventId,
-          },
-        },
-      });
-
-      if (existing?.processedAt) {
-        return;
-      }
-
-      if (!existing) {
-        throw error;
-      }
-    }
-
-    try {
-      await this.applyProviderEvent(provider, event);
-
-      await this.prisma.webhookEvent.update({
-        where: {
-          provider_externalEventId: {
-            provider,
-            externalEventId: event.eventId,
-          },
-        },
-        data: {
-          processedAt: new Date(),
-        },
-      });
-    } catch (error) {
-      // Leave processedAt null so a retry/reconciliation job can retry.
-      throw error;
-    }
-  }
-
-  private async applyProviderEvent(
-    provider: PaymentProviderName,
-    event: NormalizedWebhookEvent,
-  ) {
-    if (!event.externalSubscriptionId) {
-      return;
-    }
-
-    const subscription = await this.prisma.subscription.findFirst({
-      where: {
-        provider,
-        externalSubscriptionId: event.externalSubscriptionId,
-      },
-    });
-
-    if (!subscription) {
-      // Do not grant access based on an unknown subscription.
-      return;
-    }
-
-    const status = this.mapStatus(provider, event);
-
-    await this.prisma.$transaction(async (tx) => {
-      if (status) {
-        await tx.subscription.update({
-          where: { id: subscription.id },
-          data: {
-            status,
-            ...(status === SubscriptionStatus.CANCELLED
-              ? { cancelledAt: new Date() }
-              : {}),
-          },
-        });
-      }
-
-      if (event.externalPaymentId && event.amount != null) {
-        await tx.payment.upsert({
-          where: {
-            provider_externalPaymentId: {
-              provider,
-              externalPaymentId: event.externalPaymentId,
-            },
-          },
-          create: {
-            userId: subscription.userId,
-            subscriptionId: subscription.id,
-            provider,
-            externalPaymentId: event.externalPaymentId,
-            amount: event.amount,
-            currency: event.currency ?? "INR",
-            status: this.isSuccessfulPayment(event.type)
-              ? PaymentStatus.SUCCEEDED
-              : PaymentStatus.FAILED,
-            paidAt: this.isSuccessfulPayment(event.type)
-              ? (event.occurredAt ?? new Date())
-              : null,
-          },
-          update: {
-            status: this.isSuccessfulPayment(event.type)
-              ? PaymentStatus.SUCCEEDED
-              : PaymentStatus.FAILED,
-            paidAt: this.isSuccessfulPayment(event.type)
-              ? (event.occurredAt ?? new Date())
-              : null,
-          },
-        });
-      }
-    });
-  }
-
-  private isSuccessfulPayment(eventType: string): boolean {
-    return [
-      "invoice.paid",
-      "payment.captured",
-      "subscription.charged",
-    ].includes(eventType);
-  }
-
-  private mapStatus(
-    provider: PaymentProviderName,
-    event: NormalizedWebhookEvent,
-  ): SubscriptionStatus | undefined {
-    if (provider === PaymentProviderName.STRIPE) {
-      switch (event.type) {
-        case "customer.subscription.created":
-          return SubscriptionStatus.INCOMPLETE;
-        case "customer.subscription.updated":
-          return this.mapStripeStatus(event.status);
-        case "customer.subscription.deleted":
-          return SubscriptionStatus.CANCELLED;
-        case "invoice.payment_failed":
-          return SubscriptionStatus.PAST_DUE;
-        default:
-          return undefined;
-      }
-    }
-
-    switch (event.type) {
-      case "subscription.authenticated":
-        return SubscriptionStatus.INCOMPLETE;
-      case "subscription.activated":
-        return SubscriptionStatus.ACTIVE;
-      case "subscription.halted":
-        return SubscriptionStatus.PAST_DUE;
-      case "subscription.paused":
-        return SubscriptionStatus.PAUSED;
-      case "subscription.resumed":
-        return SubscriptionStatus.ACTIVE;
-      case "subscription.cancelled":
-        return SubscriptionStatus.CANCELLED;
-      case "subscription.completed":
-        return SubscriptionStatus.EXPIRED;
-      default:
-        return undefined;
-    }
-  }
-
-  private mapStripeStatus(status?: string): SubscriptionStatus | undefined {
-    const map: Record<string, SubscriptionStatus> = {
-      active: SubscriptionStatus.ACTIVE,
-      trialing: SubscriptionStatus.TRIALING,
-      past_due: SubscriptionStatus.PAST_DUE,
-      unpaid: SubscriptionStatus.UNPAID,
-      canceled: SubscriptionStatus.CANCELLED,
-      incomplete: SubscriptionStatus.INCOMPLETE,
-      paused: SubscriptionStatus.PAUSED,
+      capabilities: provider?.capabilities ?? null,
+      usage: await this.entitlements.usage(userId),
     };
+  }
 
-    return status ? map[status] : undefined;
+  // ---- actions ----
+
+  async createCheckout(userId: string, dto: CheckoutDto) {
+    const { subscription } = await this.entitlements.getPlan(userId);
+    if (subscription) {
+      throw new ConflictException(
+        "You already have a subscription. Change plan or resume it instead.",
+      );
+    }
+
+    const providerName = this.router.providerFor(dto.billingCountry);
+    const provider = this.providers.get(providerName);
+    const providerPriceId = this.prices.providerPriceId(
+      providerName,
+      dto.planKey,
+      dto.interval,
+    );
+    if (!providerPriceId)
+      throw new BadRequestException("This plan isn't available in your region");
+
+    const user = await this.repo.findUserBasics(userId);
+    if (!user) throw new NotFoundException("User not found");
+
+    const app = this.config.getOrThrow<string>("APP_URL");
+    return this.call(async () =>
+      provider.createCheckout({
+        userId,
+        email: user.email,
+        planKey: dto.planKey,
+        interval: dto.interval,
+        providerPriceId,
+        billingCountry: dto.billingCountry,
+        providerCustomerId: await this.repo.findCustomerId(
+          userId,
+          providerName,
+        ),
+        successUrl: `${app}/settings/billing?checkout=success`,
+        cancelUrl: `${app}/settings/billing?checkout=cancelled`,
+      }),
+    );
+  }
+
+  async cancel(userId: string) {
+    const sub = await this.currentSubscription(userId);
+    if (!sub.cancelAtPeriodEnd) {
+      const provider = this.providers.get(sub.provider);
+      await this.call(() =>
+        provider.scheduleCancellation(sub.providerSubscriptionId),
+      );
+      // Some providers don't report the flag, so record it ourselves. Syncing then keeps it.
+      await this.repo.setCancelAtPeriodEnd(sub.id, true);
+      await this.refresh(sub);
+    }
+    return this.getOverview(userId);
+  }
+
+  async resume(userId: string) {
+    const sub = await this.currentSubscription(userId);
+    const provider = this.providers.get(sub.provider);
+    if (!provider.capabilities.resume) {
+      throw new BadRequestException(
+        "This subscription can't be resumed. Subscribe again after it ends.",
+      );
+    }
+    if (sub.cancelAtPeriodEnd) {
+      await this.call(() =>
+        provider.unscheduleCancellation(sub.providerSubscriptionId),
+      );
+      await this.repo.setCancelAtPeriodEnd(sub.id, false);
+      await this.refresh(sub);
+    }
+    return this.getOverview(userId);
+  }
+
+  async changePlan(userId: string, dto: ChangePlanDto) {
+    const sub = await this.currentSubscription(userId);
+    if (sub.planKey === dto.planKey && sub.interval === dto.interval) {
+      throw new BadRequestException("You're already on this plan");
+    }
+    const provider = this.providers.get(sub.provider);
+    if (!provider.capabilities.changePlan) {
+      throw new BadRequestException(
+        "This subscription's plan can't be changed. Cancel and subscribe again.",
+      );
+    }
+    const priceId = this.prices.providerPriceId(
+      sub.provider,
+      dto.planKey,
+      dto.interval,
+    );
+    if (!priceId)
+      throw new BadRequestException(
+        "That plan isn't available for your subscription",
+      );
+
+    await this.call(() =>
+      provider.changePlan(sub.providerSubscriptionId, priceId),
+    );
+    await this.refresh(sub); // the stored plan changes when the provider says it did
+    return this.getOverview(userId);
+  }
+
+  async createPortalSession(userId: string) {
+    const sub = await this.currentSubscription(userId);
+    const provider = this.providers.get(sub.provider);
+    if (!provider.capabilities.portal)
+      throw new BadRequestException("No billing portal for this subscription");
+
+    const customerId = await this.repo.findCustomerId(userId, sub.provider);
+    if (!customerId) throw new NotFoundException("No billing customer found");
+
+    const url = await this.call(() =>
+      provider.createPortalSession(
+        customerId,
+        `${this.config.getOrThrow<string>("APP_URL")}/settings/billing`,
+      ),
+    );
+    return { url };
+  }
+
+  /** Called before an account is deleted: stop future charges. Best effort, never blocks deletion. */
+  async cancelForAccountDeletion(userId: string): Promise<void> {
+    if (!this.entitlements.enabled) return;
+    for (const sub of await this.entitlements.entitledSubscriptions(userId)) {
+      if (sub.cancelAtPeriodEnd) continue;
+      try {
+        await this.providers
+          .get(sub.provider)
+          .scheduleCancellation(sub.providerSubscriptionId);
+      } catch (e) {
+        this.logger.error(
+          `Could not cancel ${sub.provider} ${sub.providerSubscriptionId}: ${(e as Error).message}`,
+        );
+      }
+    }
+  }
+
+  // ---- helpers ----
+
+  private async currentSubscription(userId: string): Promise<Subscription> {
+    const { subscription } = await this.entitlements.getPlan(userId);
+    if (!subscription) throw new NotFoundException("No active subscription");
+    return subscription;
+  }
+
+  private async refresh(sub: Subscription) {
+    await this.sync
+      .sync(sub.provider, sub.providerSubscriptionId)
+      .catch((e: Error) =>
+        this.logger.warn(`Refresh after change failed: ${e.message}`),
+      );
+  }
+
+  /** Maps provider failures to HTTP errors without leaking provider details. */
+  private async call<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (e) {
+      if (e instanceof UnsupportedOperationError)
+        throw new BadRequestException(e.message);
+      if (e instanceof ProviderError) {
+        this.logger.error(e.message);
+        if (e.status && e.status >= 400 && e.status < 500) {
+          throw new BadRequestException(
+            "The payment provider rejected this request",
+          );
+        }
+        throw new BadGatewayException(
+          "The payment provider is unavailable. Try again shortly.",
+        );
+      }
+      throw e;
+    }
   }
 }

@@ -1,105 +1,172 @@
-import { Injectable, InternalServerErrorException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { PaymentProviderName } from "@prisma/client";
-import Razorpay from "razorpay";
-import * as crypto from "crypto";
+import type { SubscriptionStatus } from "@prisma/client";
 
 import {
+  BillingProvider,
+  CheckoutInput,
+  CheckoutSession,
+  InvalidWebhookError,
+  NormalizedEvent,
+  NormalizedSubscription,
   PaymentProvider,
-  CreateProviderSubscriptionInput,
-  ProviderSubscriptionResult,
-  NormalizedWebhookEvent,
-} from "../interfaces/payment-provider.interface";
+  WebhookHeaders,
+} from "./payment-provider.interface";
+import {
+  asInterval,
+  asStringRecord,
+  header,
+  hmac,
+  requestJson,
+  safeEqual,
+  sha256Hex,
+  unixToDate,
+} from "./provider-utils";
 
-@Injectable()
-export class RazorpayProvider implements PaymentProvider {
-  readonly name = PaymentProviderName.RAZORPAY;
+const STATUS: Record<string, SubscriptionStatus> = {
+  created: "INCOMPLETE",
+  authenticated: "INCOMPLETE", // mandate approved, first charge not made yet
+  active: "ACTIVE",
+  pending: "PAST_DUE", // a charge failed and is being retried
+  halted: "PAST_DUE", // retries exhausted; the grace window in entitlements ends access
+  paused: "PAUSED",
+  cancelled: "CANCELED",
+  completed: "EXPIRED",
+  expired: "EXPIRED",
+};
 
-  private readonly client: Razorpay;
-  private readonly webhookSecret: string;
+interface RazorpaySubscription {
+  id: string;
+  plan_id: string;
+  customer_id?: string | null;
+  status: string;
+  current_end?: number | null;
+  charge_at?: number | null;
+  notes?: unknown;
+}
+
+@BillingProvider({ provider: "razorpay" })
+export class RazorpayProvider extends PaymentProvider {
+  readonly name = "razorpay";
+  // No hosted portal. UPI and eMandate subscriptions can't be changed by the merchant, and a paused UPI
+  // subscription can only be resumed by the customer. changePlan fails for those and the service reports it.
+  readonly capabilities = { portal: false, changePlan: true, resume: false };
 
   constructor(private readonly config: ConfigService) {
-    const keyId = this.config.get<string>("RAZORPAY_KEY_ID");
-    const keySecret = this.config.get<string>("RAZORPAY_KEY_SECRET");
+    super();
+  }
 
-    this.webhookSecret =
-      this.config.get<string>("RAZORPAY_WEBHOOK_SECRET") ?? "";
+  private get keyId() {
+    return this.config.getOrThrow<string>("RAZORPAY_KEY_ID");
+  }
+  private get keySecret() {
+    return this.config.getOrThrow<string>("RAZORPAY_KEY_SECRET");
+  }
+  private get webhookSecret() {
+    return this.config.getOrThrow<string>("RAZORPAY_WEBHOOK_SECRET");
+  }
 
-    if (!keyId || !keySecret || !this.webhookSecret) {
-      throw new Error("Razorpay configuration is missing");
-    }
+  validate(): void {
+    void this.keyId;
+    void this.keySecret;
+    void this.webhookSecret;
+  }
 
-    this.client = new Razorpay({
-      key_id: keyId,
-      key_secret: keySecret,
+  private call<T>(
+    method: "GET" | "POST" | "PATCH",
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
+    const auth = Buffer.from(`${this.keyId}:${this.keySecret}`).toString(
+      "base64",
+    );
+    return requestJson<T>(`https://api.razorpay.com/v1${path}`, {
+      method,
+      headers: {
+        Authorization: `Basic ${auth}`,
+        "Content-Type": "application/json",
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
   }
 
-  async createSubscription(
-    input: CreateProviderSubscriptionInput,
-  ): Promise<ProviderSubscriptionResult> {
-    const subscription = await this.client.subscriptions.create({
-      plan_id: input.externalPlanId,
-      total_count: input.interval === "YEAR" ? 10 : 120,
-      quantity: 1,
-      customer_notify: true,
+  async createCheckout(input: CheckoutInput): Promise<CheckoutSession> {
+    // total_count is the number of billing cycles before the subscription completes on its own.
+    const totalCount = Number(
+      this.config.get(`RAZORPAY_TOTAL_COUNT_${input.interval.toUpperCase()}`) ??
+        (input.interval === "year" ? 10 : 120),
+    );
+    const sub = await this.call<{ id: string }>("POST", "/subscriptions", {
+      plan_id: input.providerPriceId,
+      total_count: totalCount,
+      customer_notify: 1,
       notes: {
         userId: input.userId,
-        planCode: input.planCode,
+        planKey: input.planKey,
+        interval: input.interval,
       },
     });
-
     return {
-      externalSubscriptionId: subscription.id,
-      checkoutOptions: {
-        key: this.config.get<string>("RAZORPAY_KEY_ID"),
-        subscription_id: subscription.id,
-        name: "Your Application",
-        description: input.planCode,
-        prefill: {
-          email: input.email,
-        },
+      type: "razorpay",
+      keyId: this.keyId,
+      subscriptionId: sub.id,
+      prefill: {
+        email: input.email,
+        ...(input.name ? { name: input.name } : {}),
       },
     };
   }
 
-  async verifyWebhook(
-    rawBody: Buffer,
-    signature: string,
-  ): Promise<NormalizedWebhookEvent> {
-    const expected = crypto
-      .createHmac("sha256", this.webhookSecret)
-      .update(rawBody)
-      .digest("hex");
-
-    const actualBuffer = Buffer.from(signature, "hex");
-    const expectedBuffer = Buffer.from(expected, "hex");
-
-    if (
-      actualBuffer.length !== expectedBuffer.length ||
-      !crypto.timingSafeEqual(actualBuffer, expectedBuffer)
-    ) {
-      throw new Error("Invalid Razorpay webhook signature");
-    }
-
-    const payload = JSON.parse(rawBody.toString("utf8"));
-
-    const subscriptionEntity = payload.payload?.subscription?.entity;
-
-    const paymentEntity = payload.payload?.payment?.entity;
-
+  async getSubscription(id: string): Promise<NormalizedSubscription> {
+    const s = await this.call<RazorpaySubscription>(
+      "GET",
+      `/subscriptions/${encodeURIComponent(id)}`,
+    );
+    const notes = asStringRecord(s.notes);
     return {
-      eventId: payload.id,
-      type: payload.event,
-      externalSubscriptionId:
-        subscriptionEntity?.id ?? paymentEntity?.subscription_id,
-      externalPaymentId: paymentEntity?.id,
-      status: subscriptionEntity?.status,
-      amount: paymentEntity?.amount,
-      currency: paymentEntity?.currency,
-      occurredAt: payload.created_at
-        ? new Date(payload.created_at * 1000)
-        : undefined,
+      providerSubscriptionId: s.id,
+      providerCustomerId: s.customer_id ?? null,
+      userId: notes.userId ?? null,
+      providerPriceId: s.plan_id,
+      planKey: notes.planKey ?? null,
+      interval: asInterval(notes.interval),
+      status: STATUS[s.status] ?? "INCOMPLETE",
+      currentPeriodEnd: unixToDate(s.current_end ?? s.charge_at),
+      cancelAtPeriodEnd: null, // not reported reliably; the service records it when we cancel
+    };
+  }
+
+  async scheduleCancellation(id: string): Promise<void> {
+    await this.call("POST", `/subscriptions/${encodeURIComponent(id)}/cancel`, {
+      cancel_at_cycle_end: 1,
+    });
+  }
+
+  async changePlan(id: string, priceId: string): Promise<void> {
+    await this.call("PATCH", `/subscriptions/${encodeURIComponent(id)}`, {
+      plan_id: priceId,
+      schedule_change_at:
+        this.config.get<string>("RAZORPAY_PLAN_CHANGE_AT") ?? "cycle_end",
+      customer_notify: 1,
+    });
+  }
+
+  parseWebhook(raw: Buffer, headers: WebhookHeaders): NormalizedEvent {
+    const signature = header(headers, "x-razorpay-signature");
+    if (!signature) throw new InvalidWebhookError();
+    if (!safeEqual(signature, hmac(this.webhookSecret, raw, "hex")))
+      throw new InvalidWebhookError();
+
+    const event = JSON.parse(raw.toString("utf8")) as {
+      event: string;
+      payload?: { subscription?: { entity?: { id?: string } } };
+    };
+    const id = event.event.startsWith("subscription.")
+      ? event.payload?.subscription?.entity?.id
+      : undefined;
+    return {
+      eventId: header(headers, "x-razorpay-event-id") ?? sha256Hex(raw),
+      type: event.event,
+      providerSubscriptionId: id ?? null,
     };
   }
 }

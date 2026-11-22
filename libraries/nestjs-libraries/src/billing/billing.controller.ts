@@ -1,56 +1,55 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from "@nestjs/common";
-import { IsEnum, IsString, IsUrl } from "class-validator";
-import { PaymentProviderName } from "@prisma/client";
+import { Body, Controller, Get, Post, Query, UseGuards } from "@nestjs/common";
 
-import { PlanService } from "./plan.service";
-import { PaymentService } from "./payment.service";
+import { AuthGuard } from "../auth/auth.guard"; // match your auth setup
+import { CurrentUserId } from "../auth/current-user.decorator"; // match your auth setup
+import { BillingEnabledGuard } from "./billing.guard";
+import { ChangePlanDto, CheckoutDto, PlansQueryDto } from "./billing.dto";
 import { BillingService } from "./billing.service";
 
-import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
-import { CurrentUser } from "../auth/decorators/current-user.decorator";
-
-class CreateSubscriptionDto {
-  @IsString()
-  planCode: string;
-
-  @IsEnum(PaymentProviderName)
-  provider: PaymentProviderName;
-
-  @IsUrl({ require_tld: false })
-  successUrl: string;
-
-  @IsUrl({ require_tld: false })
-  cancelUrl: string;
-}
-
 @Controller("billing")
-@UseGuards(JwtAuthGuard)
+@UseGuards(BillingEnabledGuard)
 export class BillingController {
-  constructor(
-    private readonly plans: PlanService,
-    private readonly payments: PaymentService,
-    private readonly billing: BillingService,
-  ) {}
+  constructor(private readonly billing: BillingService) {}
 
+  /** Public, so a pricing page can call it before login. */
   @Get("plans")
-  getPlans() {
-    return this.plans.listPlans();
+  plans(@Query() q: PlansQueryDto) {
+    return this.billing.listPlans(q.country);
   }
 
-  @Get("me")
-  getMyBilling(@CurrentUser() user: any) {
-    return this.billing.getUserBilling(user.id);
+  @Get("subscription")
+  @UseGuards(AuthGuard)
+  overview(@CurrentUserId() userId: string) {
+    return this.billing.getOverview(userId);
   }
 
-  @Post("subscriptions")
-  createSubscription(
-    @CurrentUser() user: any,
-    @Body() dto: CreateSubscriptionDto,
-  ) {
-    return this.payments.createSubscription({
-      userId: user.id,
-      email: user.email,
-      ...dto,
-    });
+  @Post("checkout")
+  @UseGuards(AuthGuard)
+  checkout(@CurrentUserId() userId: string, @Body() dto: CheckoutDto) {
+    return this.billing.createCheckout(userId, dto);
+  }
+
+  @Post("subscription/cancel")
+  @UseGuards(AuthGuard)
+  cancel(@CurrentUserId() userId: string) {
+    return this.billing.cancel(userId);
+  }
+
+  @Post("subscription/resume")
+  @UseGuards(AuthGuard)
+  resume(@CurrentUserId() userId: string) {
+    return this.billing.resume(userId);
+  }
+
+  @Post("subscription/change-plan")
+  @UseGuards(AuthGuard)
+  changePlan(@CurrentUserId() userId: string, @Body() dto: ChangePlanDto) {
+    return this.billing.changePlan(userId, dto);
+  }
+
+  @Post("portal")
+  @UseGuards(AuthGuard)
+  portal(@CurrentUserId() userId: string) {
+    return this.billing.createPortalSession(userId);
   }
 }
